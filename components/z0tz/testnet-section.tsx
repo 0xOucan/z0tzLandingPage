@@ -9,53 +9,53 @@ const chains = [
 const operations = [
   {
     label: "Deploy",
-    time: "5.0s",
-    note: "gasless",
-    detail: "Smart accounts on 3 chains",
+    time: "3.7s",
+    note: "$0.004",
+    detail: "309K gas, RIP-7212 P-256",
     txs: [
-      { chain: "Base", url: "https://sepolia.basescan.org/tx/0xa532b228503a173efa7d71c30a44457210329cd5d4bfa56a801de776273da547" },
-      { chain: "Eth", url: "https://sepolia.etherscan.io/tx/0x5320128b4275ee4b741bc9718f218f4746107509142e2d2cbb4ccb4ea154d096" },
-      { chain: "Arb", url: "https://sepolia.arbiscan.io/tx/0xcd091ce6f7fee43d8d90fe012f6185fe2cdb3e71e8fc86fed2897c2f3c1093cf" },
+      { chain: "Base", url: "https://sepolia.basescan.org/tx/0xd9872afd689dbbe7760656f211c5a19d21821fe32bb5d7801fc6308dad26ca6d" },
+      { chain: "Eth", url: "https://sepolia.etherscan.io/tx/0xc8a1a7790b6a4efa6fe17239ccc558b64d41cb9ff4bfc8b81b7663716d7d89a5" },
+      { chain: "Arb", url: "https://sepolia.arbiscan.io/tx/0xb250c00829edf2a922a18fd70e1cbf93be1e2b3384e28e3be6921c1e84cb1b4a" },
     ],
   },
   {
     label: "Faucet",
-    time: "6.5s",
-    note: "no admin",
-    detail: "Mint test USDC permissionless",
+    time: "4.8s",
+    note: "$0.002",
+    detail: "137K gas, permissionless",
     txs: [
-      { chain: "Base", url: "https://sepolia.basescan.org/tx/0xf2670faeb4df3cf2bd292a6d038f75291a1d3bf72d245abf34b73d7287d17685" },
-      { chain: "Eth", url: "https://sepolia.etherscan.io/tx/0x2259602b0dfc1537129ab6bcab7533e69d633e00752791d02fac6c09ff87b553" },
-      { chain: "Arb", url: "https://sepolia.arbiscan.io/tx/0x3e6bc7332cddcf452a7afc31e1a9d34de5b6558f99584bcc747e5b48ca49d07f" },
+      { chain: "Base", url: "https://sepolia.basescan.org/tx/0x66cc949660443254b3a27d2a030a7597b0c709ae2b20e91271894b364ef1f99b" },
+      { chain: "Eth", url: "https://sepolia.etherscan.io/tx/0xe2b6aac2e4a642cfa9ed65f22ecd62d1b919c7cf2d039e69c855d15c20e33a3f" },
+      { chain: "Arb", url: "https://sepolia.arbiscan.io/tx/0x411a7f639604a3ef9703943006e0e740192a40970784c9a449001f4d3efb27f0" },
     ],
   },
   {
     label: "Shield",
-    time: "16.4s",
-    note: "USDC\u2192eUSDC",
-    detail: "FHE encrypted shielding",
+    time: "7.7s",
+    note: "$0.006",
+    detail: "467K gas, USDC\u2192eUSDC",
     txs: [
-      { chain: "Base", url: "https://sepolia.basescan.org/tx/0xb36160e0a4be0eff4678aa039ba44d038368c983dedbe03dac3d52a62885eb69" },
-      { chain: "Eth", url: "https://sepolia.etherscan.io/tx/0x19e799c4681828dcba6be667d6a34dacccd06af8726ccd0b899dad597599ab67" },
-      { chain: "Arb", url: "https://sepolia.arbiscan.io/tx/0xcf27bccb8fa0daa7033adac7ce3a59a89b2873ef6393f36310332381fda679c2" },
+      { chain: "Base", url: "https://sepolia.basescan.org/tx/0x96fb6ffdd5d6e3cb90a471c9dc57ace4d7b5de4c04d47fcdbb7eb425d1e487ab" },
+      { chain: "Eth", url: "https://sepolia.etherscan.io/tx/0x3cc6abd51c042ac29bfc8157cb7dcca6733b67df53150a9b3f587da570d4e955" },
+      { chain: "Arb", url: "https://sepolia.arbiscan.io/tx/0xb1a1f4c21dfdbb562cf7c8f396a84a8dff1a69ae53b38990a6a12069582f4db9" },
     ],
   },
   {
     label: "FHE Transfer",
-    time: "22.1s",
-    note: "encrypted",
-    detail: "CoFHE SDK confidential transfer",
+    time: "16.5s",
+    note: "$0.002",
+    detail: "134K gas, CoFHE encrypted",
     txs: [
-      { chain: "Base", url: "https://sepolia.basescan.org/tx/0x23fe1e7cab7844f79cd90acfefa6a9786b1fc6085fb613233929c26e4123200d" },
+      { chain: "Base", url: "https://sepolia.basescan.org/tx/0xf55e717ddaa2bf824f734d9a504ae9cdae31c265e5b698fe8a7569b5f62c0dc2" },
     ],
   },
   {
     label: "Unshield",
-    time: "5.6s",
-    note: "eUSDC\u2192USDC",
-    detail: "Decrypt and withdraw",
+    time: "3.8s",
+    note: "$0.005",
+    detail: "418K gas, eUSDC\u2192USDC",
     txs: [
-      { chain: "Base", url: "https://sepolia.basescan.org/tx/0x83ccda075eeb3f5358029f5ec35289f56bbacee93ec2b6c24fe712e5d6f8a922" },
+      { chain: "Base", url: "https://sepolia.basescan.org/tx/0xe939f452b6624985129727951d0e7a0f5699216c5966fb829c9353c7d749f90a" },
     ],
   },
   {
@@ -155,7 +155,7 @@ export function TestnetSection() {
         </div>
 
         <p className="text-center text-muted-foreground mt-8">
-          27 verified contracts across 3 chains — 36/36 in 178s
+          27 verified contracts across 3 chains — 36/36 in 143.7s — ~$0.06 total on L2
         </p>
       </div>
     </section>
