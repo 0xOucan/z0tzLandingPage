@@ -64,14 +64,23 @@ export async function POST(req: NextRequest) {
 
     // Check if stealth already has ETH
     const balance = await client.getBalance({ address: stealthAddress as Address });
-    if (balance > parseEther("0.00005")) {
+    if (balance > parseEther("0.00001")) {
       return NextResponse.json({ success: true, txHash: "already-funded", message: "Stealth already has ETH" }, { headers: corsHeaders });
     }
 
-    // Send 0.0001 ETH (enough for 1-2 ERC-20 transfers on L2)
+    // Estimate actual gas cost: ~65K gas for ERC-20 transfer * 3 (token + fee + ETH return)
+    const gasPrice = await client.getGasPrice();
+    const estimatedCost = gasPrice * 200000n; // ~200K gas for 3 transfers
+    // Add 50% buffer
+    const fundAmount = estimatedCost + (estimatedCost / 2n);
+    // Min 0.000005 ETH, max 0.0001 ETH
+    const MIN = parseEther("0.000005");
+    const MAX = parseEther("0.0001");
+    const amount = fundAmount < MIN ? MIN : fundAmount > MAX ? MAX : fundAmount;
+
     const hash = await wallet.sendTransaction({
       to: stealthAddress as Address,
-      value: parseEther("0.0001"),
+      value: amount,
     });
 
     await client.waitForTransactionReceipt({ hash });
