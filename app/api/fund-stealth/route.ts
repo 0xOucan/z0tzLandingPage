@@ -64,14 +64,14 @@ export async function POST(req: NextRequest) {
 
     // Check if stealth already has ETH
     const balance = await client.getBalance({ address: stealthAddress as Address });
-    if (balance > parseEther("0.0005")) {
+    if (balance > parseEther("0.00005")) {
       return NextResponse.json({ success: true, txHash: "already-funded", message: "Stealth already has ETH" }, { headers: corsHeaders });
     }
 
-    // Send 0.001 ETH (enough for ~2-3 ERC-20 transfers on L2)
+    // Send 0.0001 ETH (enough for 1-2 ERC-20 transfers on L2)
     const hash = await wallet.sendTransaction({
       to: stealthAddress as Address,
-      value: parseEther("0.001"),
+      value: parseEther("0.0001"),
     });
 
     await client.waitForTransactionReceipt({ hash });
