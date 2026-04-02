@@ -58,6 +58,13 @@ const contracts = [
     base: "https://sepolia.basescan.org/address/0x94434cD412056535512dD7f0D39D8e4B03580c5B#code",
   },
   {
+    name: "zUSDC (FHERC20)",
+    description: "Real testnet USDC → encrypted",
+    eth: "https://sepolia.etherscan.io/address/0x88599eBD2A9d869529322Fa628020Ea81708Ff30#code",
+    arb: "https://sepolia.arbiscan.io/address/0xA9a33070375969758aE5e663aa47F82C886AffD9#code",
+    base: "https://sepolia.basescan.org/address/0x7A80aaedaeE4e99Fd53A010fDf7027A72CC659De#code",
+  },
+  {
     name: "P256Verifier",
     description: "RIP-7212 native precompile (0x100)",
     eth: "https://sepolia.etherscan.io/address/0xc2b78104907F722DABAc4C69f826a522B2754De4#code",
@@ -74,7 +81,7 @@ export function ContractsSection() {
           Verified Contracts
         </h2>
         <p className="text-center text-muted-foreground mb-12">
-          9 contracts deployed &amp; verified on 3 chains — 27 total
+          10 contracts deployed &amp; verified on 3 chains — 30 total
         </p>
 
         <div className="overflow-x-auto">
