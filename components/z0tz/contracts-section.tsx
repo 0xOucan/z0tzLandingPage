@@ -65,6 +65,20 @@ const contracts = [
     base: "https://sepolia.basescan.org/address/0x7A80aaedaeE4e99Fd53A010fDf7027A72CC659De#code",
   },
   {
+    name: "WrappedUSDC (V5)",
+    description: "FHERC20WrappedERC20 + 2-phase unshield",
+    eth: "https://sepolia.etherscan.io/address/0x9B9A246ae9062F8dbB432941Eaaa5A72Bad432B8#code",
+    arb: "https://sepolia.arbiscan.io/address/0x7dA841679F9cCbd0f282BBe62c2f5df1079ffAf5#code",
+    base: "https://sepolia.basescan.org/address/0x716C209AB3efD01ED426CfBC603FFbF150c7F862#code",
+  },
+  {
+    name: "SweeperV2 (V5)",
+    description: "wrap + encrypted confidentialTransfer",
+    eth: "https://sepolia.etherscan.io/address/0x51ac05F1caA7B501073A0D169DA7f93Db60209A3#code",
+    arb: "https://sepolia.arbiscan.io/address/0x29CaE5CA25F0D7BA0e2260B15495Eb0667eF52EB#code",
+    base: "https://sepolia.basescan.org/address/0x4ACEB142CE32350ba85Be29cfe31a3a41C868C23#code",
+  },
+  {
     name: "PrivateSweeper",
     description: "FHE-encrypted stealth sweep",
     eth: "https://sepolia.etherscan.io/address/0x0F525f0989faCeD5f891b13DB646e4A2B3Fad91D#code",
@@ -88,7 +102,7 @@ export function ContractsSection() {
           Verified Contracts
         </h2>
         <p className="text-center text-muted-foreground mb-12">
-          11 contracts deployed &amp; verified on 3 chains — 33 total
+          13 contracts deployed &amp; verified on 3 chains — 39 total
         </p>
 
         <div className="overflow-x-auto">
