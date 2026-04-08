@@ -65,6 +65,13 @@ const contracts = [
     base: "https://sepolia.basescan.org/address/0x7A80aaedaeE4e99Fd53A010fDf7027A72CC659De#code",
   },
   {
+    name: "PrivateSweeper",
+    description: "FHE-encrypted stealth sweep",
+    eth: "https://sepolia.etherscan.io/address/0x0F525f0989faCeD5f891b13DB646e4A2B3Fad91D#code",
+    arb: "https://sepolia.arbiscan.io/address/0x7Ad5b056F6E1d3175E1bFD760BfF9a0B39953708#code",
+    base: "https://sepolia.basescan.org/address/0x407eD47868F2C4fcf01d9022B74b441DdfdFba0f#code",
+  },
+  {
     name: "P256Verifier",
     description: "RIP-7212 native precompile (0x100)",
     eth: "https://sepolia.etherscan.io/address/0xc2b78104907F722DABAc4C69f826a522B2754De4#code",
@@ -81,7 +88,7 @@ export function ContractsSection() {
           Verified Contracts
         </h2>
         <p className="text-center text-muted-foreground mb-12">
-          10 contracts deployed &amp; verified on 3 chains — 30 total
+          11 contracts deployed &amp; verified on 3 chains — 33 total
         </p>
 
         <div className="overflow-x-auto">
