@@ -24,17 +24,27 @@ const phases = [
   { phase: 9, desc: "36/36 definitive multi-chain demo", completed: true },
   {
     phase: 10,
-    desc: "Electron GUI, TOR/NYM routing, batch transactions",
-    completed: false,
-    current: true,
+    desc: "Electron GUI, stealth cash-in/out, CoFHE ERC-1271",
+    completed: true,
   },
   {
     phase: 11,
+    desc: "Real testnet USDC (zUSDC), hybrid RIP-7212",
+    completed: true,
+  },
+  {
+    phase: 12,
+    desc: "V5: FHERC20WrappedERC20, 2-phase unshield, PrivateSweeperV2, 39 contracts",
+    completed: true,
+    current: true,
+  },
+  {
+    phase: 13,
     desc: "Z0tz SDK for Fhenix ecosystem integration",
     completed: false,
   },
   {
-    phase: 12,
+    phase: 14,
     desc: "Production deployment, audit, mainnet",
     completed: false,
   },

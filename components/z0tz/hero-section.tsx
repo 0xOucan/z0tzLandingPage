@@ -21,7 +21,7 @@ export function HeroSection() {
           FHE-native private wallet stack
         </p>
         <p className="text-lg text-muted-foreground mb-8 animate-fade-in-up animation-delay-200">
-          from identity to execution to payments
+          from identity to execution to payments — V5 maximum privacy
         </p>
         <p className="text-foreground mb-12 animate-fade-in-up animation-delay-300">
           No seed phrases. No IP leaks. No traceable flows.

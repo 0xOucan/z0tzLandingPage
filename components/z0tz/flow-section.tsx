@@ -12,7 +12,8 @@ const useSteps = [
 ]
 
 const cashOutSteps = [
-  "Unshield eUSDC → USDC",
+  "Unshield eUSDC → claim created + FHE.allowPublic",
+  "Threshold network decrypts → claimUnshielded releases USDC",
   "Send to stealth address → exchange receives, no link to you",
 ]
 
@@ -62,7 +63,7 @@ export function FlowSection() {
           {/* Cash Out */}
           <div className="border border-foreground/30 p-6">
             <h3 className="text-lg font-bold uppercase tracking-wider mb-6 text-foreground">
-              Cash Out
+              Cash Out (V5 2-Phase)
             </h3>
             <ol className="space-y-4">
               {cashOutSteps.map((step, index) => (

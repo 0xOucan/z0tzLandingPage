@@ -78,7 +78,7 @@ export function TestnetSection() {
           Verified on 3 Testnets
         </h2>
         <p className="text-center text-muted-foreground mb-12">
-          36/36 operations passed — 3 users, 3 chains, zero admin key
+          V5: 3 users, 3 chains, FHERC20WrappedERC20, 2-phase unshield, 39 contracts
         </p>
 
         {/* Chain Status */}
@@ -155,7 +155,7 @@ export function TestnetSection() {
         </div>
 
         <p className="text-center text-muted-foreground mt-8">
-          27 verified contracts across 3 chains — 36/36 in 143.7s — ~$0.06 total on L2
+          39 verified contracts across 3 chains (13 types) — V5 maximum privacy — ~$0.06 total on L2
         </p>
       </div>
     </section>

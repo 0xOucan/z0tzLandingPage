@@ -21,7 +21,8 @@ const RPCS: Record<number, string> = {
   421614: "https://arbitrum-sepolia-rpc.publicnode.com",
 };
 
-// Rate limit: max 5 fund requests per IP per hour
+// Rate limit: max requests per IP per hour (set via FUND_STEALTH_LIMIT env, default 50)
+const FUND_LIMIT = Number(process.env.FUND_STEALTH_LIMIT ?? "50");
 const fundLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 export async function OPTIONS() {
@@ -32,8 +33,8 @@ export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
   const now = Date.now();
   const entry = fundLimitMap.get(ip);
-  if (entry && now < entry.resetAt && entry.count >= 5) {
-    return NextResponse.json({ success: false, error: "Rate limit: max 5 stealth funds per hour" }, { status: 429, headers: corsHeaders });
+  if (entry && now < entry.resetAt && entry.count >= FUND_LIMIT) {
+    return NextResponse.json({ success: false, error: `Rate limit: max ${FUND_LIMIT} stealth funds per hour` }, { status: 429, headers: corsHeaders });
   }
   if (!entry || now > (entry?.resetAt ?? 0)) {
     fundLimitMap.set(ip, { count: 1, resetAt: now + 3600_000 });
