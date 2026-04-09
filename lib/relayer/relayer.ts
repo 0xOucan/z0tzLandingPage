@@ -46,6 +46,20 @@ export interface BridgeRequest {
   destRecipient: string;
 }
 
+export interface PrivateBridgeRequest {
+  lockId: string;
+  amount: string;
+  srcChainId: number;
+  destChainId: number;
+  recipient: string; // user's smart account on destination
+  encryptedAmount: {
+    ctHash: string;
+    securityZone: number;
+    utype: number;
+    signature: string;
+  };
+}
+
 export interface RelayResult {
   success: boolean;
   transactionHash?: Hex;
@@ -131,13 +145,16 @@ export function loadConfigFromEnv(): RelayerConfig {
   const bridgeAddresses: Record<number, string> = {};
   const paymasterAddresses: Record<number, string> = {};
   const factoryAddresses: Record<number, string> = {};
+  const privateBridgeAddresses: Record<number, string> = {};
   for (const chainId of allowedChains) {
     const bridge = process.env[`BRIDGE_ADDRESS_${chainId}`];
     const paymaster = process.env[`PAYMASTER_ADDRESS_${chainId}`];
     const factory = process.env[`FACTORY_ADDRESS_${chainId}`];
+    const privateBridge = process.env[`PRIVATE_BRIDGE_ADDRESS_${chainId}`];
     if (bridge) bridgeAddresses[chainId] = bridge;
     if (paymaster) paymasterAddresses[chainId] = paymaster;
     if (factory) factoryAddresses[chainId] = factory;
+    if (privateBridge) privateBridgeAddresses[chainId] = privateBridge;
   }
 
   return {
@@ -151,7 +168,8 @@ export function loadConfigFromEnv(): RelayerConfig {
     bridgeAddresses,
     paymasterAddresses,
     factoryAddresses,
-  };
+    privateBridgeAddresses,
+  } as RelayerConfig;
 }
 
 export function validateUserOp(
@@ -323,5 +341,92 @@ export async function relayBridge(
     return { success: true, transactionHash: hash };
   } catch (error) {
     return { success: false, error: `Failed to mint: ${(error as Error).message?.slice(0, 300)}` };
+  }
+}
+
+// Private bridge: mint + shield + encrypted transfer on destination
+const PRIVATE_BRIDGE_ABI = [
+  {
+    name: "mintAndShield",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "recipient", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "srcChainId", type: "uint256" },
+      { name: "srcLockId", type: "bytes32" },
+      { name: "inTransferAmount", type: "tuple", components: [
+        { name: "ctHash", type: "uint256" },
+        { name: "securityZone", type: "uint8" },
+        { name: "utype", type: "uint8" },
+        { name: "signature", type: "bytes" },
+      ]},
+    ],
+    outputs: [{ name: "mintId", type: "bytes32" }],
+  },
+] as const;
+
+export async function relayPrivateBridge(
+  request: PrivateBridgeRequest,
+  config: RelayerConfig,
+): Promise<RelayResult> {
+  const { lockId, amount, srcChainId, destChainId, recipient, encryptedAmount } = request;
+
+  const srcBridgeAddr = config.bridgeAddresses?.[srcChainId];
+  const destPrivateBridgeAddr = (config as any).privateBridgeAddresses?.[destChainId];
+
+  if (!srcBridgeAddr) return { success: false, error: `No bridge for source chain ${srcChainId}` };
+  if (!destPrivateBridgeAddr) return { success: false, error: `No private bridge for dest chain ${destChainId}` };
+
+  const srcRpcUrl = config.rpcUrls[srcChainId];
+  const destRpcUrl = config.rpcUrls[destChainId];
+  if (!srcRpcUrl || !destRpcUrl) return { success: false, error: "Missing RPC URL" };
+
+  const srcChain = CHAINS[srcChainId] ?? { id: srcChainId, name: `chain-${srcChainId}`, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [srcRpcUrl] } } };
+  const destChain = CHAINS[destChainId] ?? { id: destChainId, name: `chain-${destChainId}`, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [destRpcUrl] } } };
+
+  const relayerAccount = privateKeyToAccount(config.relayerPrivateKey);
+
+  // 1. Verify lock on source
+  const srcPublicClient = createPublicClient({ chain: srcChain, transport: http(srcRpcUrl) });
+  try {
+    const lockExists = await srcPublicClient.readContract({
+      address: srcBridgeAddr as Address,
+      abi: BRIDGE_ABI,
+      functionName: "locks",
+      args: [lockId as Hex],
+    });
+    if (!lockExists) return { success: false, error: "Lock does not exist on source chain" };
+  } catch (error) {
+    return { success: false, error: `Failed to verify lock: ${(error as Error).message?.slice(0, 200)}` };
+  }
+
+  // 2. Call mintAndShield on destination PrivateBridge
+  const destPublicClient = createPublicClient({ chain: destChain, transport: http(destRpcUrl) });
+  const destWalletClient = createWalletClient({ account: relayerAccount, chain: destChain, transport: http(destRpcUrl) });
+
+  try {
+    const hash = await destWalletClient.writeContract({
+      address: destPrivateBridgeAddr as Address,
+      abi: PRIVATE_BRIDGE_ABI,
+      functionName: "mintAndShield",
+      args: [
+        recipient as Address,
+        BigInt(amount),
+        BigInt(srcChainId),
+        lockId as Hex,
+        {
+          ctHash: BigInt(encryptedAmount.ctHash),
+          securityZone: encryptedAmount.securityZone,
+          utype: encryptedAmount.utype,
+          signature: encryptedAmount.signature as Hex,
+        },
+      ],
+      gas: 2_000_000n,
+    });
+    await destPublicClient.waitForTransactionReceipt({ hash });
+    return { success: true, transactionHash: hash };
+  } catch (error) {
+    return { success: false, error: `Failed to mintAndShield: ${(error as Error).message?.slice(0, 300)}` };
   }
 }
