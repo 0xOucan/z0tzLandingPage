@@ -4,6 +4,7 @@ import { WhySection } from "@/components/z0tz/why-section"
 import { PrivacyLayersSection } from "@/components/z0tz/privacy-layers-section"
 import { ArchitectureSection } from "@/components/z0tz/architecture-section"
 import { FlowSection } from "@/components/z0tz/flow-section"
+import { HonestSection } from "@/components/z0tz/honest-section"
 import { TestnetSection } from "@/components/z0tz/testnet-section"
 import { ContractsSection } from "@/components/z0tz/contracts-section"
 import { RelayerSection } from "@/components/z0tz/relayer-section"
@@ -21,6 +22,7 @@ export default function Home() {
       <PrivacyLayersSection />
       <ArchitectureSection />
       <FlowSection />
+      <HonestSection />
       <TestnetSection />
       <ContractsSection />
       <RelayerSection />
