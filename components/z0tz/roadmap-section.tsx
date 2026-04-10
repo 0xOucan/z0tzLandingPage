@@ -29,23 +29,33 @@ const phases = [
   },
   {
     phase: 11,
-    desc: "Real testnet USDC (zUSDC), hybrid RIP-7212",
+    desc: "Real testnet USDC (zUSDC), native RIP-7212 P-256",
     completed: true,
   },
   {
     phase: 12,
     desc: "V5: FHERC20WrappedERC20, 2-phase unshield, PrivateSweeperV2, 39 contracts",
     completed: true,
+  },
+  {
+    phase: "12.5",
+    desc: "Cross-chain stack: 12-step Private Bridge, 10-step Cross-Chain Cash Out, 8-step Cross-Chain Cash In, GUI integration",
+    completed: true,
     current: true,
   },
   {
     phase: 13,
-    desc: "Z0tz SDK for Fhenix ecosystem integration",
+    desc: "Network-layer privacy: TOR/NYM SOCKS5 routing, encrypted RPC endpoints, P2P relayer mesh",
     completed: false,
   },
   {
     phase: 14,
-    desc: "Production deployment, audit, mainnet",
+    desc: "Z0tz SDK for Fhenix ecosystem integration",
+    completed: false,
+  },
+  {
+    phase: 15,
+    desc: "Production audit, mainnet deployment",
     completed: false,
   },
 ]
