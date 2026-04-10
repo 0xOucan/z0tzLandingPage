@@ -55,6 +55,13 @@ export function Footer() {
             <p>Built with FHE by 0xOucan</p>
             <p className="mt-2">Apache-2.0</p>
           </div>
+
+          {/* MVP / PoC disclosure */}
+          <div className="mt-4 max-w-2xl border border-foreground/20 px-4 py-3 text-center text-xs text-muted-foreground">
+            <span className="text-foreground font-bold">MVP / proof-of-concept.</span>{" "}
+            Z0tz contracts are functional and CoFHE-SDK compliant but have <span className="text-foreground">not been audited</span>.
+            Use for evaluation, integration prototyping, and research, not for storing real value.
+          </div>
         </div>
       </div>
     </footer>
