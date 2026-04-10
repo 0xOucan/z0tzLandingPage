@@ -24,7 +24,7 @@ export function HeroSection() {
           from identity to execution to payments — V5 maximum privacy
         </p>
         <p className="text-foreground mb-12 animate-fade-in-up animation-delay-300">
-          No seed phrases. No IP leaks. No traceable flows.
+          No seed phrases. No identity-linked flows. Encrypted in-wallet activity.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center animate-fade-in-up animation-delay-400">

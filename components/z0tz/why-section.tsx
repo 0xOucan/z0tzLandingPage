@@ -35,20 +35,20 @@ export function WhySection() {
             </p>
             <ul className="space-y-4 text-foreground">
               <li className="flex gap-4">
-                <span className="font-bold">Encrypted state</span>
-                <span className="text-muted-foreground">— native (FHE)</span>
+                <span className="font-bold">In-wallet state</span>
+                <span className="text-muted-foreground">— FHE encrypted (CoFHE)</span>
               </li>
               <li className="flex gap-4">
                 <span className="font-bold">Execution</span>
-                <span className="text-muted-foreground">— anonymous (TOR / NYM)</span>
+                <span className="text-muted-foreground">— TOR / NYM routing (Phase 13)</span>
               </li>
               <li className="flex gap-4">
                 <span className="font-bold">Payments</span>
-                <span className="text-muted-foreground">— unlinkable (stealth)</span>
+                <span className="text-muted-foreground">— address unlinkability (stealth)</span>
               </li>
               <li className="flex gap-4">
                 <span className="font-bold">Gas</span>
-                <span className="text-muted-foreground">— invisible (paymaster)</span>
+                <span className="text-muted-foreground">— sponsored (no ETH balance to track)</span>
               </li>
             </ul>
           </div>
