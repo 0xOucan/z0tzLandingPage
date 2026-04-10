@@ -11,7 +11,7 @@ const operations = [
     label: "Deploy",
     time: "3.7s",
     note: "$0.004",
-    detail: "309K gas, RIP-7212 P-256",
+    detail: "309K gas, P-256 via RIP-7212",
     txs: [
       { chain: "Base", url: "https://sepolia.basescan.org/tx/0xd9872afd689dbbe7760656f211c5a19d21821fe32bb5d7801fc6308dad26ca6d" },
       { chain: "Eth", url: "https://sepolia.etherscan.io/tx/0xc8a1a7790b6a4efa6fe17239ccc558b64d41cb9ff4bfc8b81b7663716d7d89a5" },

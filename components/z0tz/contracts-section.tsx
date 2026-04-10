@@ -10,7 +10,7 @@ const contracts = [
   },
   {
     name: "Z0tzAccountFactory",
-    description: "CREATE2, hybrid P-256 (RIP-7212)",
+    description: "CREATE2, P-256 (RIP-7212 precompile)",
     eth: "https://sepolia.etherscan.io/address/0x7CC57b1a0E3f297aC5756eE8ff61C113fa8705D1#code",
     arb: "https://sepolia.arbiscan.io/address/0x73D9e7800A85E3935ae36B1A57c715D7379886C7#code",
     base: "https://sepolia.basescan.org/address/0x7dA841679F9cCbd0f282BBe62c2f5df1079ffAf5#code",
