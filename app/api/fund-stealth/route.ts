@@ -69,14 +69,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, txHash: "already-funded", message: "Stealth already has ETH" }, { headers: corsHeaders });
     }
 
-    // Estimate gas cost for: ERC-20 approve (~65K) + privateSweep with FHE ops (~2.5M) + ETH return (~21K)
+    // Estimate gas cost for stealth operations:
+    // Private faucet: approve (~65K) + privateSweep (~800K) + ETH return (~21K) ≈ 900K
+    // Cashout/bridge: unshield (~500K) + claim (~200K) + lock/send (~200K) + ETH return (~21K) ≈ 1M
+    // Use 1.5M as safe upper bound
     const gasPrice = await client.getGasPrice();
-    const estimatedCost = gasPrice * 3_000_000n; // ~3M gas total (FHE operations are expensive)
+    const estimatedCost = gasPrice * 1_500_000n;
     // Add 50% buffer
     const fundAmount = estimatedCost + (estimatedCost / 2n);
-    // Min 0.00005 ETH, max 0.005 ETH
-    const MIN = parseEther("0.00005");
-    const MAX = parseEther("0.005");
+    // Min 0.0001 ETH, max 0.05 ETH (L1 needs more ETH due to higher gas prices)
+    const MIN = parseEther("0.0001");
+    const MAX = parseEther("0.05");
     const amount = fundAmount < MIN ? MIN : fundAmount > MAX ? MAX : fundAmount;
 
     const hash = await wallet.sendTransaction({
