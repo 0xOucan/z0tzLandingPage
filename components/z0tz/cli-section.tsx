@@ -128,7 +128,7 @@ const commandResponses: Record<string, TerminalLine[]> = {
     { type: "success", text: "  ✓ Done in 64.2s, 1.94M gas, $0.024 on L2" },
     { type: "output", text: "  Circle is the bridge. Z0tz is still the privacy." },
   ],
-  "bridge cashout --amount 0.5 --dest-chain 421614 --to 0xfBf9": [
+  "bridge cashout --amount 0.5 --dest-chain 421614 --to 0xfbf9": [
     { type: "output", text: "Cross-Chain Cash Out (10 steps): base-sepolia → arb-sepolia" },
     { type: "output", text: "  amount: 0.5 USDC  target: 0xfBf9fcB0...e1B2" },
     { type: "output", text: "" },
@@ -233,7 +233,7 @@ const quickCommands = [
   { label: "tx send-aa", cmd: "tx send-aa --to 0x742d...4e --amount 100" },
   { label: "unshield-v5", cmd: "tx unshield-v5 --amount 100" },
   { label: "bridge private (CCTP)", cmd: "bridge private --amount 5 --dest-chain 421614" },
-  { label: "bridge cashout (CCTP)", cmd: "bridge cashout --amount 0.5 --dest-chain 421614 --to 0xfBf9" },
+  { label: "bridge cashout (CCTP)", cmd: "bridge cashout --amount 0.5 --dest-chain 421614 --to 0xfbf9" },
   { label: "bridge cashin (CCTP)", cmd: "bridge cashin --src-chain 84532" },
   { label: "stealth init", cmd: "stealth init" },
   { label: "demo", cmd: "demo" },

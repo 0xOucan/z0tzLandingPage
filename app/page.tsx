@@ -19,6 +19,7 @@ export default function Home() {
       <Navbar />
       <HeroSection />
       <WhySection />
+      <CLISection />
       <PrivacyLayersSection />
       <ArchitectureSection />
       <FlowSection />
@@ -26,7 +27,6 @@ export default function Home() {
       <TestnetSection />
       <ContractsSection />
       <RelayerSection />
-      <CLISection />
       <MarketFitSection />
       <RoadmapSection />
       <Footer />

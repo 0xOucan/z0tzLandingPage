@@ -39,12 +39,12 @@ export function WhySection() {
                 <span className="text-muted-foreground">— FHE encrypted (CoFHE)</span>
               </li>
               <li className="flex gap-4">
-                <span className="font-bold">Execution</span>
-                <span className="text-muted-foreground">— TOR / NYM routing (Phase 13)</span>
-              </li>
-              <li className="flex gap-4">
                 <span className="font-bold">Payments</span>
                 <span className="text-muted-foreground">— address unlinkability (stealth)</span>
+              </li>
+              <li className="flex gap-4">
+                <span className="font-bold">Cross-chain</span>
+                <span className="text-muted-foreground">— CCTP V2 routed via stealth pairs</span>
               </li>
               <li className="flex gap-4">
                 <span className="font-bold">Gas</span>
