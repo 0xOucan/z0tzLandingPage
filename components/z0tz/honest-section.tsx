@@ -1,5 +1,7 @@
 "use client"
 
+import { Expandable } from "./expandable"
+
 interface PrivacyRow {
   op: string
   publicData: string
@@ -33,10 +35,22 @@ const rows: PrivacyRow[] = [
     notes: "The only operation in Z0tz where the amount is genuinely hidden on-chain.",
   },
   {
-    op: "Bridge lock / mintAndShield",
+    op: "CCTP V2 depositForBurn (USDC)",
+    publicData: "Burner (stealthA), destDomain, mintRecipient (stealthB), plaintext amount",
+    privateData: "—",
+    notes: "Circle's permissionless burn. Both sender and mint recipient are one-time stealth addresses.",
+  },
+  {
+    op: "CCTP V2 receiveMessage (USDC)",
+    publicData: "Caller (stealthB), plaintext amount, MessageReceived event",
+    privateData: "—",
+    notes: "Circle's permissionless mint on destination. Event names stealthB, never the user.",
+  },
+  {
+    op: "Legacy Z0tzBridge (MockUSDC, dev only)",
     publicData: "Stealth source/dest, plaintext amount",
     privateData: "—",
-    notes: "Bridges must transit plaintext (FHE handles are chain-specific). Privacy gain comes from one-time addresses, not amount hiding.",
+    notes: "Kept for dev tests. No real-value flow depends on this contract anymore.",
   },
   {
     op: "PrivateSweeperV2.privateSweep",
@@ -60,7 +74,7 @@ const rows: PrivacyRow[] = [
 
 export function HonestSection() {
   return (
-    <section className="py-24 px-6">
+    <section id="honesty" className="py-24 px-6">
       <div className="max-w-[1200px] mx-auto">
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-4 text-center text-foreground">
           What&apos;s Public, What&apos;s Private
@@ -68,35 +82,10 @@ export function HonestSection() {
         <p className="text-center text-muted-foreground mb-12 max-w-3xl mx-auto">
           Z0tz is a privacy stack, not a magic black box. Different operations have different
           privacy properties, and being explicit about this is more useful than marketing absolutes.
-          Here is exactly what an on-chain observer can and cannot see at each step.
         </p>
 
-        {/* Public/Private map */}
-        <div className="border border-foreground/30 mb-12 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-foreground/30 bg-secondary">
-                <th className="text-left p-4 uppercase tracking-wider text-foreground font-bold whitespace-nowrap">Operation</th>
-                <th className="text-left p-4 uppercase tracking-wider text-foreground font-bold">Public on-chain</th>
-                <th className="text-left p-4 uppercase tracking-wider text-foreground font-bold">Private</th>
-                <th className="text-left p-4 uppercase tracking-wider text-foreground font-bold">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i} className={i < rows.length - 1 ? "border-b border-foreground/15" : ""}>
-                  <td className="p-4 text-foreground font-bold whitespace-nowrap">{r.op}</td>
-                  <td className="p-4 text-muted-foreground">{r.publicData}</td>
-                  <td className="p-4 text-muted-foreground">{r.privateData}</td>
-                  <td className="p-4 text-muted-foreground text-xs">{r.notes}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Honest claims */}
-        <div className="grid md:grid-cols-2 gap-8 mb-8">
+        {/* Honest claims cards — always visible, the punchy message */}
+        <div className="grid md:grid-cols-2 gap-8 mb-12">
           <div className="border border-foreground/30 p-6 bg-secondary">
             <h3 className="text-lg font-bold uppercase tracking-wider mb-4 text-foreground">
               What we do NOT claim
@@ -113,8 +102,7 @@ export function HonestSection() {
               </li>
               <li>
                 <span className="text-foreground font-bold">Metadata-level anonymity.</span>{" "}
-                Network-layer privacy (TOR/NYM, encrypted RPC) is on the roadmap (Phase 13) and
-                not yet shipped.
+                Network-layer privacy (TOR/NYM, encrypted RPC) is on the roadmap and not yet shipped.
               </li>
               <li>
                 <span className="text-foreground font-bold">Trustless threshold network.</span>{" "}
@@ -155,9 +143,40 @@ export function HonestSection() {
           </div>
         </div>
 
-        <p className="text-center text-foreground text-sm font-medium">
+        <p className="text-center text-foreground text-sm font-medium mb-12">
           Privacy is unlinkability between identities, not amount confidentiality at the wrap/unwrap boundary.
         </p>
+
+        {/* Full per-op table — expandable for visitors who want the complete map */}
+        <Expandable
+          title="Full public / private map per operation"
+          summary="Every on-chain action Z0tz can perform, with what is public, what is private, and a one-line note explaining the trade-off."
+          moreLabel="see the full table"
+          lessLabel="hide the full table"
+        >
+          <div className="border border-foreground/30 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-foreground/30 bg-secondary">
+                  <th className="text-left p-4 uppercase tracking-wider text-foreground font-bold whitespace-nowrap">Operation</th>
+                  <th className="text-left p-4 uppercase tracking-wider text-foreground font-bold">Public on-chain</th>
+                  <th className="text-left p-4 uppercase tracking-wider text-foreground font-bold">Private</th>
+                  <th className="text-left p-4 uppercase tracking-wider text-foreground font-bold">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className={i < rows.length - 1 ? "border-b border-foreground/15" : ""}>
+                    <td className="p-4 text-foreground font-bold whitespace-nowrap">{r.op}</td>
+                    <td className="p-4 text-muted-foreground">{r.publicData}</td>
+                    <td className="p-4 text-muted-foreground">{r.privateData}</td>
+                    <td className="p-4 text-muted-foreground text-xs">{r.notes}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Expandable>
       </div>
     </section>
   )

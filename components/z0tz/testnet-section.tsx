@@ -1,5 +1,7 @@
 "use client"
 
+import { Expandable } from "./expandable"
+
 const chains = [
   { name: "Base Sepolia", status: true },
   { name: "Eth Sepolia", status: true },
@@ -59,14 +61,25 @@ const operations = [
     ],
   },
   {
-    label: "Bridge",
-    time: "9.9s",
-    note: "cross-chain",
-    detail: "Lock-and-mint via relayer",
-    txs: [
-      { chain: "Lock", url: "https://sepolia.basescan.org/tx/0xdde683f25242b239caf40d51c0e2bbcb634395a178fe3ee49cbee72fbc69d2a4" },
-      { chain: "Mint", url: "https://sepolia.etherscan.io/tx/0xda5436c36db32a430e11bfac2cb238f35f89056b147c650e8855404691c77a19" },
-    ],
+    label: "Cross-Chain Cash In",
+    time: "38.6s",
+    note: "$0.010",
+    detail: "718K gas, CCTP V2 Fast Transfer",
+    txs: [],
+  },
+  {
+    label: "Private Bridge",
+    time: "64.2s",
+    note: "$0.024",
+    detail: "1.94M gas, 12 steps, CCTP V2",
+    txs: [],
+  },
+  {
+    label: "Cross-Chain Cash Out",
+    time: "52.4s",
+    note: "$0.007",
+    detail: "541K gas, 10 steps, CCTP V2",
+    txs: [],
   },
 ]
 
@@ -77,12 +90,13 @@ export function TestnetSection() {
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-4 text-center text-foreground">
           Verified on 3 Testnets
         </h2>
-        <p className="text-center text-muted-foreground mb-12">
-          V5: 3 users, 3 chains, FHERC20WrappedERC20, 2-phase unshield, 39 contracts
+        <p className="text-center text-muted-foreground mb-12 max-w-3xl mx-auto">
+          Three users, three chains, every capability — from the first deploy to the 12-step private
+          bridge. All gasless via paymaster, all tested end-to-end against live testnets.
         </p>
 
-        {/* Chain Status */}
-        <div className="flex flex-wrap justify-center gap-6 mb-16">
+        {/* Chain status — always visible */}
+        <div className="flex flex-wrap justify-center gap-6 mb-12">
           {chains.map((chain) => (
             <div
               key={chain.name}
@@ -96,67 +110,104 @@ export function TestnetSection() {
           ))}
         </div>
 
-        {/* Operations Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full border border-foreground text-sm">
-            <thead>
-              <tr className="border-b border-foreground">
-                <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground">
-                  Operation
-                </th>
-                <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground">
-                  Time
-                </th>
-                <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground hidden md:table-cell">
-                  Details
-                </th>
-                <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground">
-                  Transactions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {operations.map((op) => (
-                <tr
-                  key={op.label}
-                  className="border-b border-foreground/20 transition-colors hover:bg-foreground/5"
-                >
-                  <td className="p-3 font-medium text-foreground">
-                    {op.label}
-                    <span className="text-muted-foreground text-xs ml-2">
-                      {op.note}
-                    </span>
-                  </td>
-                  <td className="p-3 text-foreground font-bold text-lg">
-                    {op.time}
-                  </td>
-                  <td className="p-3 text-muted-foreground hidden md:table-cell">
-                    {op.detail}
-                  </td>
-                  <td className="p-3">
-                    <div className="flex flex-wrap gap-2">
-                      {op.txs.map((tx) => (
-                        <a
-                          key={tx.chain}
-                          href={tx.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-foreground hover:underline text-xs border border-foreground/30 px-2 py-1 transition-colors hover:bg-foreground hover:text-background"
-                        >
-                          {tx.chain}
-                        </a>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* CCTP headline numbers — always visible */}
+        <div className="border border-foreground/30 p-6 mb-12 max-w-3xl mx-auto">
+          <h3 className="text-sm font-bold uppercase tracking-wider mb-4 text-foreground text-center">
+            Real Circle CCTP V2 runs — Base Sepolia ↔ Arb Sepolia
+          </h3>
+          <div className="grid md:grid-cols-3 gap-4 text-center">
+            <div>
+              <div className="text-[var(--blood-red)] text-xs uppercase tracking-wider">Cross-Chain Cash In</div>
+              <div className="text-foreground font-bold text-2xl mt-1">38.6s</div>
+              <div className="text-muted-foreground text-xs mt-1">8 steps · 718K gas · $0.010</div>
+            </div>
+            <div>
+              <div className="text-[var(--blood-red)] text-xs uppercase tracking-wider">Private Bridge</div>
+              <div className="text-foreground font-bold text-2xl mt-1">64.2s</div>
+              <div className="text-muted-foreground text-xs mt-1">12 steps · 1.94M gas · $0.024</div>
+            </div>
+            <div>
+              <div className="text-[var(--blood-red)] text-xs uppercase tracking-wider">Cross-Chain Cash Out</div>
+              <div className="text-foreground font-bold text-2xl mt-1">52.4s</div>
+              <div className="text-muted-foreground text-xs mt-1">10 steps · 541K gas · $0.007</div>
+            </div>
+          </div>
+          <p className="text-center text-muted-foreground text-xs mt-4">
+            Fast Transfer fee: ~1.3 bps on testnet (free on mainnet for small amounts via the FastTransferAllowance pool)
+          </p>
         </div>
 
-        <p className="text-center text-muted-foreground mt-8">
-          39 verified contracts across 3 chains (13 types) — V5 maximum privacy — ~$0.06 total on L2
-        </p>
+        {/* Full per-operation table — expandable */}
+        <Expandable
+          title="Full operation benchmarks"
+          summary="Per-operation gas, cost, and live explorer links across all three testnets."
+          moreLabel="see every operation"
+          lessLabel="hide operation list"
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full border border-foreground text-sm">
+              <thead>
+                <tr className="border-b border-foreground">
+                  <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground">
+                    Operation
+                  </th>
+                  <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground">
+                    Time
+                  </th>
+                  <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground hidden md:table-cell">
+                    Details
+                  </th>
+                  <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground">
+                    Transactions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {operations.map((op) => (
+                  <tr
+                    key={op.label}
+                    className="border-b border-foreground/20 transition-colors hover:bg-foreground/5"
+                  >
+                    <td className="p-3 font-medium text-foreground">
+                      {op.label}
+                      <span className="text-muted-foreground text-xs ml-2">
+                        {op.note}
+                      </span>
+                    </td>
+                    <td className="p-3 text-foreground font-bold text-lg">
+                      {op.time}
+                    </td>
+                    <td className="p-3 text-muted-foreground hidden md:table-cell">
+                      {op.detail}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex flex-wrap gap-2">
+                        {op.txs.length > 0 ? op.txs.map((tx) => (
+                          <a
+                            key={tx.chain}
+                            href={tx.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-foreground hover:underline text-xs border border-foreground/30 px-2 py-1 transition-colors hover:bg-foreground hover:text-background"
+                          >
+                            {tx.chain}
+                          </a>
+                        )) : (
+                          <span className="text-muted-foreground text-xs italic">measured in CCTP e2e runs</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="text-center text-muted-foreground text-sm mt-6">
+            39 verified contracts across 3 chains (13 types) — V5 maximum privacy stack — sub-cent per
+            single operation, under three cents end-to-end for full multi-step private flows.
+          </p>
+        </Expandable>
       </div>
     </section>
   )

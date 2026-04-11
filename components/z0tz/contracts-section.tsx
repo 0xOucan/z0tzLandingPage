@@ -1,5 +1,7 @@
 "use client"
 
+import { Expandable } from "./expandable"
+
 const contracts = [
   {
     name: "Z0tzTokenV2",
@@ -52,7 +54,7 @@ const contracts = [
   },
   {
     name: "Z0tzBridge",
-    description: "Lock-and-mint cross-chain",
+    description: "Legacy lock-and-mint (MockUSDC dev only)",
     eth: "https://sepolia.etherscan.io/address/0xcC9cC052549b5e57c78a78fAD777Aba8824599e9#code",
     arb: "https://sepolia.arbiscan.io/address/0x8eD185F95d62A60CC3Cf2688FFe3a250b3a8262B#code",
     base: "https://sepolia.basescan.org/address/0x94434cD412056535512dD7f0D39D8e4B03580c5B#code",
@@ -101,89 +103,120 @@ export function ContractsSection() {
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-4 text-center text-foreground">
           Verified Contracts
         </h2>
-        <p className="text-center text-muted-foreground mb-12">
-          13 contracts deployed &amp; verified on 3 chains — 39 total
-        </p>
 
-        <div className="overflow-x-auto">
-          <table className="w-full border border-foreground text-sm">
-            <thead>
-              <tr className="border-b border-foreground">
-                <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground">
-                  Contract
-                </th>
-                <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground hidden md:table-cell">
-                  Description
-                </th>
-                <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
-                  Eth
-                </th>
-                <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
-                  Arb
-                </th>
-                <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
-                  Base
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {contracts.map((c) => (
-                <tr
-                  key={c.name}
-                  className="border-b border-foreground/20 transition-colors hover:bg-foreground/5"
-                >
-                  <td className="p-3 font-medium text-foreground">{c.name}</td>
-                  <td className="p-3 text-muted-foreground hidden md:table-cell">
-                    {c.description}
-                  </td>
-                  <td className="p-3 text-center">
-                    <a
-                      href={c.eth}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-foreground hover:underline"
-                    >
-                      view
-                    </a>
-                  </td>
-                  <td className="p-3 text-center">
-                    <a
-                      href={c.arb}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-foreground hover:underline"
-                    >
-                      view
-                    </a>
-                  </td>
-                  <td className="p-3 text-center">
-                    <a
-                      href={c.base}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-foreground hover:underline"
-                    >
-                      view
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* Summary card — always visible */}
+        <div className="max-w-3xl mx-auto mb-12">
+          <div className="grid grid-cols-3 gap-6 text-center mb-8">
+            <div className="border border-foreground/30 p-6">
+              <div className="text-4xl font-bold text-foreground">39</div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground mt-2">Verified contracts</div>
+            </div>
+            <div className="border border-foreground/30 p-6">
+              <div className="text-4xl font-bold text-foreground">13</div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground mt-2">Contract types</div>
+            </div>
+            <div className="border border-foreground/30 p-6">
+              <div className="text-4xl font-bold text-foreground">3</div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground mt-2">Testnets</div>
+            </div>
+          </div>
+          <p className="text-center text-muted-foreground text-sm">
+            Every Z0tz contract type deployed and etherscan-verified on Base Sepolia, Ethereum Sepolia,
+            and Arbitrum Sepolia. Circle CCTP V2 (
+            <code className="text-foreground">TokenMessengerV2</code>,{" "}
+            <code className="text-foreground">MessageTransmitterV2</code>) serves as the bridge layer for
+            real USDC at known canonical addresses.
+          </p>
         </div>
 
-        <p className="text-center text-muted-foreground text-sm mt-6">
-          EntryPoint v0.8:{" "}
-          <a
-            href="https://sepolia.basescan.org/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-foreground hover:underline"
-          >
-            0x4337084D...Ff108
-          </a>{" "}
-          — same on all chains
-        </p>
+        {/* Full contract list — expandable */}
+        <Expandable
+          title="All contract addresses across three chains"
+          summary="Click any row to open the verified source on its chain explorer."
+          moreLabel="see the full address list"
+          lessLabel="hide the address list"
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full border border-foreground text-sm">
+              <thead>
+                <tr className="border-b border-foreground">
+                  <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground">
+                    Contract
+                  </th>
+                  <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground hidden md:table-cell">
+                    Description
+                  </th>
+                  <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
+                    Eth
+                  </th>
+                  <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
+                    Arb
+                  </th>
+                  <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
+                    Base
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {contracts.map((c) => (
+                  <tr
+                    key={c.name}
+                    className="border-b border-foreground/20 transition-colors hover:bg-foreground/5"
+                  >
+                    <td className="p-3 font-medium text-foreground">{c.name}</td>
+                    <td className="p-3 text-muted-foreground hidden md:table-cell">
+                      {c.description}
+                    </td>
+                    <td className="p-3 text-center">
+                      <a
+                        href={c.eth}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-foreground hover:underline"
+                      >
+                        view
+                      </a>
+                    </td>
+                    <td className="p-3 text-center">
+                      <a
+                        href={c.arb}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-foreground hover:underline"
+                      >
+                        view
+                      </a>
+                    </td>
+                    <td className="p-3 text-center">
+                      <a
+                        href={c.base}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-foreground hover:underline"
+                      >
+                        view
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="text-center text-muted-foreground text-sm mt-6">
+            EntryPoint v0.8:{" "}
+            <a
+              href="https://sepolia.basescan.org/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-foreground hover:underline"
+            >
+              0x4337084D...Ff108
+            </a>{" "}
+            — same on all chains. Circle CCTP V2 TokenMessengerV2 / MessageTransmitterV2 — canonical
+            addresses from Circle, same on all supported chains.
+          </p>
+        </Expandable>
       </div>
     </section>
   )
