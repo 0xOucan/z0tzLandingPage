@@ -63,24 +63,26 @@ export async function POST(req: NextRequest) {
     const client = createPublicClient({ chain, transport: http(rpc) });
     const wallet = createWalletClient({ account, chain, transport: http(rpc) });
 
-    // Check if stealth already has ETH
-    const balance = await client.getBalance({ address: stealthAddress as Address });
-    if (balance > parseEther("0.00001")) {
-      return NextResponse.json({ success: true, txHash: "already-funded", message: "Stealth already has ETH" }, { headers: corsHeaders });
-    }
-
-    // Estimate gas cost for stealth operations:
-    // Private faucet: approve (~65K) + privateSweep (~800K) + ETH return (~21K) ≈ 900K
-    // Cashout/bridge: unshield (~500K) + claim (~200K) + lock/send (~200K) + ETH return (~21K) ≈ 1M
-    // Use 1.5M as safe upper bound
+    // Estimate how much ETH this stealth needs for its operations.
+    // On L2 (Base/Arb) gas is ~0.001 gwei → 1.5M gas ≈ 0.000002 ETH.
+    // On L1 (Eth Sepolia) gas is ~3-10 gwei → 1.5M gas ≈ 0.005-0.015 ETH.
+    // Use 2M gas × gasPrice × 2 buffer as the target balance. If the stealth
+    // already has more than that, skip. This prevents the "already-funded at
+    // 0.00001 ETH" trap that let L1 stealths run out of gas mid-flow.
     const gasPrice = await client.getGasPrice();
-    const estimatedCost = gasPrice * 1_500_000n;
-    // Add 50% buffer
-    const fundAmount = estimatedCost + (estimatedCost / 2n);
-    // Min 0.0001 ETH, max 0.05 ETH (L1 needs more ETH due to higher gas prices)
+    const targetBalance = gasPrice * 2_000_000n * 2n; // 2M gas × price × 2× buffer
     const MIN = parseEther("0.0001");
     const MAX = parseEther("0.05");
-    const amount = fundAmount < MIN ? MIN : fundAmount > MAX ? MAX : fundAmount;
+
+    // Check if stealth already has enough ETH
+    const balance = await client.getBalance({ address: stealthAddress as Address });
+    if (balance >= targetBalance && balance > MIN) {
+      return NextResponse.json({ success: true, txHash: "already-funded", message: `Stealth already has ${balance} wei (target: ${targetBalance})` }, { headers: corsHeaders });
+    }
+
+    // Fund the difference (or at least the target)
+    const deficit = targetBalance > balance ? targetBalance - balance : targetBalance;
+    const amount = deficit < MIN ? MIN : deficit > MAX ? MAX : deficit;
 
     const hash = await wallet.sendTransaction({
       to: stealthAddress as Address,
