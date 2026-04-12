@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { stealthAddress, chainId, gasNeeded } = await req.json();
+    const { stealthAddress, chainId, gasNeeded, ethNeeded } = await req.json();
     if (!stealthAddress || !chainId) {
       return NextResponse.json({ success: false, error: "Missing stealthAddress or chainId" }, { status: 400, headers: corsHeaders });
     }
@@ -63,23 +63,27 @@ export async function POST(req: NextRequest) {
     const client = createPublicClient({ chain, transport: http(rpc) });
     const wallet = createWalletClient({ account, chain, transport: http(rpc) });
 
-    // Estimate how much ETH this stealth needs for its operations.
-    // On L2 (Base/Arb) gas is ~0.001 gwei → 1.5M gas ≈ 0.000002 ETH.
-    // On L1 (Eth Sepolia) gas is ~3-10 gwei → 1.5M gas ≈ 0.005-0.015 ETH.
-    // Use 2M gas × gasPrice × 2 buffer as the target balance. If the stealth
-    // already has more than that, skip. This prevents the "already-funded at
-    // 0.00001 ETH" trap that let L1 stealths run out of gas mid-flow.
+    // If the client pre-calculated the exact ETH needed, use that directly.
+    // Otherwise fall back to gasNeeded-based estimation.
     const gasPrice = await client.getGasPrice();
-    // If the caller tells us how much gas they need, use that with a 2× buffer.
-    // Otherwise default to 2M gas (covers receiveMessage + approve + privateSweep).
-    const gasEstimate = gasNeeded ? BigInt(gasNeeded) : 2_000_000n;
-    const targetBalance = gasPrice * gasEstimate * 2n; // gasEstimate × price × 2× buffer
-    const MIN = parseEther("0.0001");
+    let targetBalance: bigint;
+    if (ethNeeded) {
+      // Client already calculated precise ETH amount with proper fee estimation
+      targetBalance = BigInt(ethNeeded);
+    } else {
+      const gasEstimate = gasNeeded ? BigInt(gasNeeded) : 2_000_000n;
+      targetBalance = gasPrice * gasEstimate * 2n;
+    }
+    // When ethNeeded is provided, the client already calculated precisely with
+    // L1 data fees and proper gas estimation — respect the exact amount.
+    // Only apply MIN/MAX for the legacy gasNeeded path.
+    const isPrecise = !!ethNeeded;
+    const MIN = isPrecise ? parseEther("0.000001") : parseEther("0.0001");
     const MAX = parseEther("0.05");
 
     // Check if stealth already has enough ETH
     const balance = await client.getBalance({ address: stealthAddress as Address });
-    if (balance >= targetBalance && balance > MIN) {
+    if (balance >= targetBalance) {
       return NextResponse.json({ success: true, txHash: "already-funded", message: `Stealth already has ${balance} wei (target: ${targetBalance})` }, { headers: corsHeaders });
     }
 
