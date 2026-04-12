@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { stealthAddress, chainId } = await req.json();
+    const { stealthAddress, chainId, gasNeeded } = await req.json();
     if (!stealthAddress || !chainId) {
       return NextResponse.json({ success: false, error: "Missing stealthAddress or chainId" }, { status: 400, headers: corsHeaders });
     }
@@ -70,7 +70,10 @@ export async function POST(req: NextRequest) {
     // already has more than that, skip. This prevents the "already-funded at
     // 0.00001 ETH" trap that let L1 stealths run out of gas mid-flow.
     const gasPrice = await client.getGasPrice();
-    const targetBalance = gasPrice * 2_000_000n * 2n; // 2M gas × price × 2× buffer
+    // If the caller tells us how much gas they need, use that with a 2× buffer.
+    // Otherwise default to 2M gas (covers receiveMessage + approve + privateSweep).
+    const gasEstimate = gasNeeded ? BigInt(gasNeeded) : 2_000_000n;
+    const targetBalance = gasPrice * gasEstimate * 2n; // gasEstimate × price × 2× buffer
     const MIN = parseEther("0.0001");
     const MAX = parseEther("0.05");
 
