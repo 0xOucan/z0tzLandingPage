@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, createWalletClient, http, parseEther, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
-import { p256 } from "@noble/curves/p256";
-import { sha256 } from "@noble/hashes/sha2";
+import { p256 } from "@noble/curves/p256.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
