@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, createWalletClient, http, parseEther, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
+import { p256 } from "@noble/curves/p256";
+import { sha256 } from "@noble/hashes/sha2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-Z0tz-PubX, X-Z0tz-PubY, X-Z0tz-Sig",
 };
 
 const CHAINS: Record<number, any> = {
@@ -24,6 +26,32 @@ const RPCS: Record<number, string> = {
 // Rate limit: max requests per IP per hour (set via FUND_STEALTH_LIMIT env, default 50)
 const FUND_LIMIT = Number(process.env.FUND_STEALTH_LIMIT ?? "50");
 const fundLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+/** Verify P-256 passkey auth from request headers. Returns null if no auth (backward compat). */
+function verifyAuth(req: NextRequest, body: Record<string, unknown>): { valid: boolean; legacy: boolean; error?: string } {
+  const pubX = req.headers.get("x-z0tz-pubx");
+  const pubY = req.headers.get("x-z0tz-puby");
+  const sigHex = req.headers.get("x-z0tz-sig");
+  if (!pubX || !pubY) return { valid: true, legacy: true }; // no auth = backward compat
+  if (!sigHex || sigHex.replace(/^0x/, "").length !== 128) return { valid: false, legacy: false, error: "Invalid signature" };
+  try {
+    const xBytes = hexToBytes(pubX); const yBytes = hexToBytes(pubY);
+    if (xBytes.length !== 32 || yBytes.length !== 32) return { valid: false, legacy: false, error: "Invalid public key" };
+    const { signature: _s, ...bodyNoSig } = body;
+    const canonical = JSON.stringify(bodyNoSig, Object.keys(bodyNoSig).sort());
+    const message = sha256(new TextEncoder().encode(canonical));
+    const clean = sigHex.replace(/^0x/, "");
+    const r = BigInt("0x" + clean.slice(0, 64)); const s = BigInt("0x" + clean.slice(64));
+    const pubKey = new Uint8Array(65); pubKey[0] = 0x04; pubKey.set(xBytes, 1); pubKey.set(yBytes, 33);
+    const sig = new p256.Signature(r, s).toCompactRawBytes();
+    return { valid: p256.verify(sig, message, pubKey), legacy: false };
+  } catch { return { valid: false, legacy: false, error: "Verification failed" }; }
+}
+
+function hexToBytes(h: string): Uint8Array {
+  const c = h.replace(/^0x/, ""); const o = new Uint8Array(c.length / 2);
+  for (let i = 0; i < o.length; i++) o[i] = parseInt(c.slice(i * 2, i * 2 + 2), 16); return o;
+}
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders });
@@ -43,7 +71,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { stealthAddress, chainId, gasNeeded, ethNeeded } = await req.json();
+    const rawBody = await req.json();
+    const auth = verifyAuth(req, rawBody);
+    if (!auth.valid) return NextResponse.json({ success: false, error: auth.error ?? "Unauthorized" }, { status: 401, headers: corsHeaders });
+    const { stealthAddress, chainId, gasNeeded, ethNeeded } = rawBody;
     if (!stealthAddress || !chainId) {
       return NextResponse.json({ success: false, error: "Missing stealthAddress or chainId" }, { status: 400, headers: corsHeaders });
     }
