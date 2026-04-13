@@ -1,5 +1,7 @@
 "use client"
 
+import { useScrollReveal } from "@/hooks/use-scroll-reveal"
+
 const layers = [
   { layer: "Identity", tech: "P-256 passkeys", protects: "Who you are" },
   { layer: "State", tech: "FHE (CoFHE/Fhenix)", protects: "What you own" },
@@ -11,8 +13,11 @@ const layers = [
 ]
 
 export function PrivacyLayersSection() {
+  const { ref, revealed } = useScrollReveal()
+
   return (
     <section className="py-24 px-6 bg-secondary">
+      <div ref={ref} className={`section-reveal ${revealed ? "revealed" : ""}`}>
       <div className="max-w-[1200px] mx-auto">
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-16 text-center text-foreground">
           Privacy Layers
@@ -47,6 +52,7 @@ export function PrivacyLayersSection() {
             </tbody>
           </table>
         </div>
+      </div>
       </div>
     </section>
   )

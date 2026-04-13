@@ -1,5 +1,7 @@
 "use client"
 
+import { useScrollReveal } from "@/hooks/use-scroll-reveal"
+
 const endpoints = [
   { method: "POST", path: "/relay", description: "Submit UserOps" },
   { method: "POST", path: "/bridge", description: "Cross-chain relay" },
@@ -8,8 +10,11 @@ const endpoints = [
 ]
 
 export function RelayerSection() {
+  const { ref, revealed } = useScrollReveal()
+
   return (
     <section className="py-24 px-6">
+      <div ref={ref} className={`section-reveal ${revealed ? "revealed" : ""}`}>
       <div className="max-w-[1200px] mx-auto">
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-8 text-center text-foreground">
           Z0tz Relayer
@@ -57,6 +62,7 @@ export function RelayerSection() {
             </a>
           </div>
         </div>
+      </div>
       </div>
     </section>
   )

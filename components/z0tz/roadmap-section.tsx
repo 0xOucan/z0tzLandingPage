@@ -1,5 +1,7 @@
 "use client"
 
+import { useScrollReveal } from "@/hooks/use-scroll-reveal"
+
 interface Milestone {
   phase: string
   title: string
@@ -71,8 +73,11 @@ const milestones: Milestone[] = [
 ]
 
 export function RoadmapSection() {
+  const { ref, revealed } = useScrollReveal()
+
   return (
     <section id="roadmap" className="py-24 px-6">
+      <div ref={ref} className={`section-reveal ${revealed ? "revealed" : ""}`}>
       <div className="max-w-[1200px] mx-auto">
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-16 text-center text-foreground">
           Roadmap
@@ -137,6 +142,7 @@ export function RoadmapSection() {
           <span><span className="text-accent">→</span> current</span>
           <span><span className="text-foreground/20">○</span> pending</span>
         </div>
+      </div>
       </div>
     </section>
   )

@@ -1,6 +1,7 @@
 "use client"
 
 import { Expandable } from "./expandable"
+import { useScrollReveal } from "@/hooks/use-scroll-reveal"
 
 const chains = [
   { name: "Base Sepolia", status: true },
@@ -84,8 +85,11 @@ const operations = [
 ]
 
 export function TestnetSection() {
+  const { ref, revealed } = useScrollReveal()
+
   return (
     <section id="testnet" className="py-24 px-6">
+      <div ref={ref} className={`section-reveal ${revealed ? "revealed" : ""}`}>
       <div className="max-w-[1200px] mx-auto">
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-4 text-center text-foreground">
           Verified on 3 Testnets
@@ -208,6 +212,7 @@ export function TestnetSection() {
             single operation, under three cents end-to-end for full multi-step private flows.
           </p>
         </Expandable>
+      </div>
       </div>
     </section>
   )

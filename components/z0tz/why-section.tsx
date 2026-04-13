@@ -1,8 +1,13 @@
 "use client"
 
+import { useScrollReveal } from "@/hooks/use-scroll-reveal"
+
 export function WhySection() {
+  const { ref, revealed } = useScrollReveal()
+
   return (
     <section className="py-24 px-6">
+      <div ref={ref} className={`section-reveal ${revealed ? "revealed" : ""}`}>
       <div className="max-w-[1200px] mx-auto">
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-16 text-center text-foreground">
           Why Z0tz
@@ -53,6 +58,7 @@ export function WhySection() {
             </ul>
           </div>
         </div>
+      </div>
       </div>
     </section>
   )

@@ -1,6 +1,7 @@
 "use client"
 
 import { Expandable } from "./expandable"
+import { useScrollReveal } from "@/hooks/use-scroll-reveal"
 
 interface FlowRow {
   name: string
@@ -71,8 +72,11 @@ const bridgeSteps: BridgeStep[] = [
 ]
 
 export function FlowSection() {
+  const { ref, revealed } = useScrollReveal()
+
   return (
     <section id="flows" className="py-24 px-6 bg-secondary">
+      <div ref={ref} className={`section-reveal ${revealed ? "revealed" : ""}`}>
       <div className="max-w-[1200px] mx-auto">
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-4 text-center text-foreground">
           Private Flows
@@ -200,6 +204,7 @@ export function FlowSection() {
             The privacy gain comes from address unlinkability, not amount confidentiality at the bridge boundary.
           </p>
         </Expandable>
+      </div>
       </div>
     </section>
   )

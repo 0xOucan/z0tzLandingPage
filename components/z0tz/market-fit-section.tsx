@@ -1,6 +1,7 @@
 "use client"
 
 import { Expandable } from "./expandable"
+import { useScrollReveal } from "@/hooks/use-scroll-reveal"
 
 const ecosystemLayers = [
   { layer: "FHE Runtime", provider: "Fhenix / CoFHE", z0tz: "—" },
@@ -25,8 +26,11 @@ const stack = [
 ]
 
 export function MarketFitSection() {
+  const { ref, revealed } = useScrollReveal()
+
   return (
     <section id="market-fit" className="py-24 px-6">
+      <div ref={ref} className={`section-reveal ${revealed ? "revealed" : ""}`}>
       <div className="max-w-[1200px] mx-auto">
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-4 text-center text-foreground">
           The Wallet Layer for FHE
@@ -146,6 +150,7 @@ export function MarketFitSection() {
             them together so the user stays private through all of it.
           </p>
         </Expandable>
+      </div>
       </div>
     </section>
   )

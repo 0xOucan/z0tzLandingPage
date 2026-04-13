@@ -1,6 +1,7 @@
 "use client"
 
 import { Expandable } from "./expandable"
+import { useScrollReveal } from "@/hooks/use-scroll-reveal"
 
 interface PrivacyRow {
   op: string
@@ -73,8 +74,11 @@ const rows: PrivacyRow[] = [
 ]
 
 export function HonestSection() {
+  const { ref, revealed } = useScrollReveal()
+
   return (
     <section id="honesty" className="py-24 px-6">
+      <div ref={ref} className={`section-reveal ${revealed ? "revealed" : ""}`}>
       <div className="max-w-[1200px] mx-auto">
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-4 text-center text-foreground">
           What&apos;s Public, What&apos;s Private
@@ -177,6 +181,7 @@ export function HonestSection() {
             </table>
           </div>
         </Expandable>
+      </div>
       </div>
     </section>
   )

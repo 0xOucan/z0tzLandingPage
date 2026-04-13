@@ -5,6 +5,15 @@ import { BatLogo } from "./bat-logo"
 export function HeroSection() {
   return (
     <section className="relative min-h-screen flex items-center justify-center pt-20">
+      {/* Background radial gradient */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(ellipse at 50% 40%, rgba(122,15,15,0.12) 0%, transparent 60%)",
+        }}
+      />
+
       {/* Background bat watermark */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <BatLogo
@@ -35,12 +44,10 @@ export function HeroSection() {
             Read Docs
           </a>
           <a
-            href="https://github.com/0xOucan/Z0tz"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="border border-foreground bg-transparent text-foreground px-8 py-3 text-sm uppercase tracking-widest font-medium transition-all duration-200 hover:bg-foreground hover:text-background"
+            href="/app"
+            className="glow-hover border border-foreground bg-transparent text-foreground px-8 py-3 text-sm uppercase tracking-widest font-medium transition-all duration-200"
           >
-            View on GitHub
+            Try Demo →
           </a>
         </div>
       </div>
