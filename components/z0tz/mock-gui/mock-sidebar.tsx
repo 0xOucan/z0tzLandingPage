@@ -32,7 +32,12 @@ export function MockSidebar({ activePage, onNavigate }: MockSidebarProps) {
         >
           Send
         </button>
-        <button className="mock-nav-item dimmed">Shield</button>
+        <button
+          className={`mock-nav-item${activePage === "shield" ? " active" : ""}`}
+          onClick={() => onNavigate("shield")}
+        >
+          Shield
+        </button>
         <button
           className={`mock-nav-item${activePage === "bridge" ? " active" : ""}`}
           onClick={() => onNavigate("bridge")}
@@ -42,10 +47,30 @@ export function MockSidebar({ activePage, onNavigate }: MockSidebarProps) {
 
         <div className="mock-sidebar-separator" />
 
-        <button className="mock-nav-item dimmed">Cash In</button>
-        <button className="mock-nav-item dimmed">Cash Out</button>
-        <button className="mock-nav-item dimmed">History</button>
-        <button className="mock-nav-item dimmed">Settings</button>
+        <button
+          className={`mock-nav-item${activePage === "cashin" ? " active" : ""}`}
+          onClick={() => onNavigate("cashin")}
+        >
+          Cash In
+        </button>
+        <button
+          className={`mock-nav-item${activePage === "cashout" ? " active" : ""}`}
+          onClick={() => onNavigate("cashout")}
+        >
+          Cash Out
+        </button>
+        <button
+          className={`mock-nav-item${activePage === "history" ? " active" : ""}`}
+          onClick={() => onNavigate("history")}
+        >
+          History
+        </button>
+        <button
+          className={`mock-nav-item${activePage === "settings" ? " active" : ""}`}
+          onClick={() => onNavigate("settings")}
+        >
+          Settings
+        </button>
       </nav>
 
       <div className="mock-sidebar-footer">
