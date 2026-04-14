@@ -147,6 +147,18 @@ export function HonestSection() {
           </div>
         </div>
 
+        <div className="border border-foreground/30 p-6 mb-12 max-w-3xl mx-auto bg-secondary">
+          <h3 className="text-sm font-bold uppercase tracking-wider mb-3 text-foreground text-center">
+            V6 audit (April 2026, ethskills)
+          </h3>
+          <p className="text-center text-muted-foreground text-sm">
+            <span className="text-foreground font-bold">0 Critical</span> ·{" "}
+            <span className="text-foreground font-bold">0 High</span> ·{" "}
+            <span className="text-foreground font-bold">5 Medium</span> ·{" "}
+            <span className="text-foreground font-bold">8 Low</span> — all High issues fixed.
+          </p>
+        </div>
+
         <p className="text-center text-foreground text-sm font-medium mb-12">
           Privacy is unlinkability between identities, not amount confidentiality at the wrap/unwrap boundary.
         </p>

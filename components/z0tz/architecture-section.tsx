@@ -62,9 +62,10 @@ export function ArchitectureSection() {
           Architecture
         </h2>
         <p className="text-center text-muted-foreground mb-12 max-w-3xl mx-auto">
-          Seven layers, each closing a specific leak the others leave open. Z0tz composes
+          Seven layers (V6), each closing a specific leak the others leave open. Z0tz composes
           permissionless external infrastructure (CoFHE, CCTP V2, ERC-4337, RIP-7212) rather
-          than rebuilding it.
+          than rebuilding it. V6 adds P-256 passkey authentication on the relayer transport so
+          the same key that owns the smart account also signs every UserOp submission.
         </p>
 
         {/* Compact flow diagram — always visible */}

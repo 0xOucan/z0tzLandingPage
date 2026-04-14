@@ -47,8 +47,17 @@ export function RelayerSection() {
             ))}
           </div>
 
-          <p className="text-muted-foreground mb-8 text-center">
+          <p className="text-muted-foreground mb-4 text-center">
             Self-hosted. Open source. Zero dependencies.
+          </p>
+
+          <p className="text-muted-foreground mb-8 text-center text-sm">
+            V6 adds P-256 passkey authentication on every request — clients sign the body with
+            their wallet passkey and send <code className="text-foreground">X-Z0tz-PubX</code>,{" "}
+            <code className="text-foreground">X-Z0tz-PubY</code>, and{" "}
+            <code className="text-foreground">X-Z0tz-Sig</code> headers. The relayer verifies the
+            signature against the smart-account owner before submitting any UserOp, so a stolen
+            relayer URL cannot be replayed by a third party.
           </p>
 
           <div className="text-center">

@@ -48,26 +48,32 @@ const milestones: Milestone[] = [
   },
   {
     phase: "7",
+    title: "V6 audit + relayer auth",
+    desc: "External security review of all 13 contract types by ethskills (April 2026): 0 Critical, 0 High, 5 Medium, 8 Low — every High issue fixed. V6 also adds P-256 passkey authentication on the relayer (X-Z0tz-PubX/PubY/Sig headers) so every UserOp submission is signed by the wallet that owns it.",
+    status: "done",
+  },
+  {
+    phase: "8",
     title: "Circle CCTP V2 as the bridge layer",
     desc: "Replace the custom Z0tz bridge with permissionless Circle CCTP V2 for real USDC. Stealth pair routing on both chains, sub-minute end-to-end flows, ~1.3 bps Fast Transfer fee. External infrastructure, private composition — the bridge is Circle's, the privacy is still Z0tz's.",
     status: "current",
   },
   {
-    phase: "8",
+    phase: "9",
     title: "Network-layer privacy",
     desc: "TOR / NYM SOCKS5 routing integrated into the Electron transport layer, encrypted RPC endpoints, P2P relayer mesh so users can run their own stealth-funding node.",
     status: "pending",
   },
   {
-    phase: "9",
+    phase: "10",
     title: "Z0tz SDK for the Fhenix ecosystem",
     desc: "Publish the wallet + privacy primitives as an npm SDK so any dApp on Fhenix/CoFHE can offer private wallets with a single import.",
     status: "pending",
   },
   {
-    phase: "10",
-    title: "Production audit + mainnet",
-    desc: "External security review of every contract type, mainnet deployments on Base / Ethereum / Arbitrum, remove the MVP / proof-of-concept disclosure.",
+    phase: "11",
+    title: "Production mainnet deployment",
+    desc: "Mainnet deployments on Base / Ethereum / Arbitrum following the V6 audit, remove the MVP / proof-of-concept disclosure.",
     status: "pending",
   },
 ]

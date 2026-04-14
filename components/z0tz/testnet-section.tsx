@@ -208,8 +208,9 @@ export function TestnetSection() {
           </div>
 
           <p className="text-center text-muted-foreground text-sm mt-6">
-            39 verified contracts across 3 chains (13 types) — V5 maximum privacy stack — sub-cent per
-            single operation, under three cents end-to-end for full multi-step private flows.
+            39 verified contracts across 3 chains (13 types) — V6 maximum privacy stack with
+            audited relayer auth — sub-cent per single operation, under three cents end-to-end
+            for full multi-step private flows.
           </p>
         </Expandable>
       </div>

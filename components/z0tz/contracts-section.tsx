@@ -7,86 +7,86 @@ const contracts = [
   {
     name: "Z0tzTokenV2",
     description: "FHERC20 permissionless shield/unshield",
-    eth: "https://sepolia.etherscan.io/address/0xf8B9C8948326f3ba51C911F5e2D239431fFcBc07#code",
-    arb: "https://sepolia.arbiscan.io/address/0x500652de18697316134Cab9571eDF44F06737Be3#code",
-    base: "https://sepolia.basescan.org/address/0x7Ad5b056F6E1d3175E1bFD760BfF9a0B39953708#code",
+    eth: "https://sepolia.etherscan.io/address/0xB5922Ac6a84Ef02Ee5BB792583FB4fe346F05641#code",
+    arb: "https://sepolia.arbiscan.io/address/0x3A6D283C7Af367b82eE557D0cC6D5222D7918a2B#code",
+    base: "https://sepolia.basescan.org/address/0x064669C42879f2e8E42712E294E758c97902DB41#code",
   },
   {
     name: "Z0tzAccountFactory",
     description: "CREATE2, P-256 (RIP-7212 precompile)",
-    eth: "https://sepolia.etherscan.io/address/0x7CC57b1a0E3f297aC5756eE8ff61C113fa8705D1#code",
-    arb: "https://sepolia.arbiscan.io/address/0x73D9e7800A85E3935ae36B1A57c715D7379886C7#code",
-    base: "https://sepolia.basescan.org/address/0x7dA841679F9cCbd0f282BBe62c2f5df1079ffAf5#code",
+    eth: "https://sepolia.etherscan.io/address/0x5Fa5dB190ec8978472CD1357de905F961f0518bC#code",
+    arb: "https://sepolia.arbiscan.io/address/0x5D40769712F945831e6E338b5e3C628A926520Ae#code",
+    base: "https://sepolia.basescan.org/address/0xbD998e232226158B194644B0b72B94C0F0C80C86#code",
   },
   {
     name: "Z0tzPaymaster",
     description: "1% fee, approved targets only",
-    eth: "https://sepolia.etherscan.io/address/0xeBBb05403B96279a269F26C5F7BFa6BCf39d4cF7#code",
-    arb: "https://sepolia.arbiscan.io/address/0x2cb622CfcC23E7CC453DD806b9A47FE2416BA2CF#code",
-    base: "https://sepolia.basescan.org/address/0x79a7e7c6bdF5DEC837de87d3043F92381Eb9aE22#code",
+    eth: "https://sepolia.etherscan.io/address/0x629CE4D5384541100805C7915c0f358a9C507092#code",
+    arb: "https://sepolia.arbiscan.io/address/0x77A1beda9d0690843345954e6EA33FafddcCC60b#code",
+    base: "https://sepolia.basescan.org/address/0xb3A00685844c89526E820f4Ce8704994317f10ce#code",
   },
   {
     name: "RecoveryModule",
     description: "Guardian + commitment + delay",
-    eth: "https://sepolia.etherscan.io/address/0x514a1a4C0be76DDF3b8Ba9C6b616d43A7B1aaA43#code",
-    arb: "https://sepolia.arbiscan.io/address/0xE80Da96D8513Da14598a7d928968745ED022e23c#code",
-    base: "https://sepolia.basescan.org/address/0x03FA8293291e063ca044A4Da71AFe238C36f2dEa#code",
+    eth: "https://sepolia.etherscan.io/address/0x25533FF42195c0e045B73ddf913C9d26152200ec#code",
+    arb: "https://sepolia.arbiscan.io/address/0xC2796d8F72fedD9315e10D47153E7172bD277345#code",
+    base: "https://sepolia.basescan.org/address/0x901Ba2F21fFFc4BE041c5FFD99d50C856e375291#code",
   },
   {
     name: "StealthRegistry",
     description: "ERC-6538 meta-address registry",
-    eth: "https://sepolia.etherscan.io/address/0x401727E22008A28a036ac3a64b5922DaC08C1AA0#code",
-    arb: "https://sepolia.arbiscan.io/address/0xd32aD7E3D879458963762B432edEc4D04E77A976#code",
-    base: "https://sepolia.basescan.org/address/0xea4d51087DaE6d915807D562892308D0e07677bD#code",
+    eth: "https://sepolia.etherscan.io/address/0xFc6E42a755D2FaEBaDb7801b367Fcb22BB2e2bD0#code",
+    arb: "https://sepolia.arbiscan.io/address/0x89e363515F1122787F49CfAcC836e57408cD76A8#code",
+    base: "https://sepolia.basescan.org/address/0x234A86B51418F6a271d3DDC108A07726AEAc2876#code",
   },
   {
     name: "StealthAnnouncer",
     description: "ERC-5564 payment announcer",
-    eth: "https://sepolia.etherscan.io/address/0x7B408bFCF0c68b0C0409Ea0E1e1ec24321292f96#code",
-    arb: "https://sepolia.arbiscan.io/address/0x2f0AEF008178E840A447a8332E17e582363582f8#code",
-    base: "https://sepolia.basescan.org/address/0x3D6CCa27bFd79A6e628322fa46D555b406CdF796#code",
+    eth: "https://sepolia.etherscan.io/address/0xbbde18842026363f3a98ef70B15e7EE926F56080#code",
+    arb: "https://sepolia.arbiscan.io/address/0xc99D34A2D7143b2eC1d12E353fC5d7570ac79A8f#code",
+    base: "https://sepolia.basescan.org/address/0xa32a039C519FA313ef1A005Db93c996e3777F904#code",
   },
   {
     name: "StealthSweeper",
     description: "Gasless EIP-191 meta-tx sweep",
-    eth: "https://sepolia.etherscan.io/address/0xAfa8c4e6EDF9D2f1ddb4BBEAb200bC866e620eab#code",
-    arb: "https://sepolia.arbiscan.io/address/0xDacb38Dfb0F568E76Ccbb19AC7c814dC262f60B0#code",
-    base: "https://sepolia.basescan.org/address/0x60Ef000D1C4DDF76AAd882eAdaB38E937E4A5729#code",
+    eth: "https://sepolia.etherscan.io/address/0x4fa04CF4086c191406d12c85B00a04Fd7D9cBbd8#code",
+    arb: "https://sepolia.arbiscan.io/address/0xEf139Bb03531AeAab895453d895C3fa687Ed5240#code",
+    base: "https://sepolia.basescan.org/address/0xDDF4540b37146FabC420d6a76FCd1cDAba4bFBeD#code",
   },
   {
     name: "Z0tzBridge",
     description: "Legacy lock-and-mint (MockUSDC dev only)",
-    eth: "https://sepolia.etherscan.io/address/0xcC9cC052549b5e57c78a78fAD777Aba8824599e9#code",
-    arb: "https://sepolia.arbiscan.io/address/0x8eD185F95d62A60CC3Cf2688FFe3a250b3a8262B#code",
-    base: "https://sepolia.basescan.org/address/0x94434cD412056535512dD7f0D39D8e4B03580c5B#code",
+    eth: "https://sepolia.etherscan.io/address/0x70b82CFBE39BDf0E29F6072D625f04b757A79e70#code",
+    arb: "https://sepolia.arbiscan.io/address/0xA524a05beB1158E8bbB321d55971B8c52188777f#code",
+    base: "https://sepolia.basescan.org/address/0xF4C06541DDE43845469472D0F5e512723d85769A#code",
   },
   {
-    name: "zUSDC (FHERC20)",
-    description: "Real testnet USDC → encrypted",
-    eth: "https://sepolia.etherscan.io/address/0x88599eBD2A9d869529322Fa628020Ea81708Ff30#code",
-    arb: "https://sepolia.arbiscan.io/address/0xA9a33070375969758aE5e663aa47F82C886AffD9#code",
-    base: "https://sepolia.basescan.org/address/0x7A80aaedaeE4e99Fd53A010fDf7027A72CC659De#code",
-  },
-  {
-    name: "WrappedUSDC (V5)",
+    name: "WrappedUSDC (V6)",
     description: "FHERC20WrappedERC20 + 2-phase unshield",
-    eth: "https://sepolia.etherscan.io/address/0x9B9A246ae9062F8dbB432941Eaaa5A72Bad432B8#code",
-    arb: "https://sepolia.arbiscan.io/address/0x7dA841679F9cCbd0f282BBe62c2f5df1079ffAf5#code",
-    base: "https://sepolia.basescan.org/address/0x716C209AB3efD01ED426CfBC603FFbF150c7F862#code",
+    eth: "https://sepolia.etherscan.io/address/0xb2ffb39815B73c1384466a2C61D75da0F819130C#code",
+    arb: "https://sepolia.arbiscan.io/address/0x61AD2081D24BfEB86434FB71FeC52c191c7A33d5#code",
+    base: "https://sepolia.basescan.org/address/0xc74F97F70A0F9CB29143443e85843bfd22eB1613#code",
   },
   {
-    name: "SweeperV2 (V5)",
-    description: "wrap + encrypted confidentialTransfer",
-    eth: "https://sepolia.etherscan.io/address/0x51ac05F1caA7B501073A0D169DA7f93Db60209A3#code",
-    arb: "https://sepolia.arbiscan.io/address/0x29CaE5CA25F0D7BA0e2260B15495Eb0667eF52EB#code",
-    base: "https://sepolia.basescan.org/address/0x4ACEB142CE32350ba85Be29cfe31a3a41C868C23#code",
+    name: "WrappedMock (V6)",
+    description: "FHERC20WrappedERC20 over MockUSDC (dev)",
+    eth: "https://sepolia.etherscan.io/address/0x7D1ED1D945Af0D0a02dad04a4d88738aafF1d1df#code",
+    arb: "https://sepolia.arbiscan.io/address/0xE8Ccc4E058fbeE6888Df4B748a55f280f33DC86D#code",
+    base: "https://sepolia.basescan.org/address/0x9be379AF43c8825132B3F65E717079D8833335F7#code",
   },
   {
-    name: "PrivateSweeper",
-    description: "FHE-encrypted stealth sweep",
-    eth: "https://sepolia.etherscan.io/address/0x0F525f0989faCeD5f891b13DB646e4A2B3Fad91D#code",
-    arb: "https://sepolia.arbiscan.io/address/0x7Ad5b056F6E1d3175E1bFD760BfF9a0B39953708#code",
-    base: "https://sepolia.basescan.org/address/0x407eD47868F2C4fcf01d9022B74b441DdfdFba0f#code",
+    name: "PrivateSweeperV2",
+    description: "FHE-encrypted stealth sweep + mixing",
+    eth: "https://sepolia.etherscan.io/address/0x43C7A087c394e66178eD7c864724d30d75339c51#code",
+    arb: "https://sepolia.arbiscan.io/address/0x2F87e53CA285e5C2bde4239CE390786db90D5dc6#code",
+    base: "https://sepolia.basescan.org/address/0x9f3b7A9Cd6d801F746B1F43AeCbD1753318e6958#code",
+  },
+  {
+    name: "MockUSDC (feeToken)",
+    description: "Public-mint MockERC20 used as paymaster fee token",
+    eth: "https://sepolia.etherscan.io/address/0xb259F8D770c02EFA62347F82335CB5b7DB91567E#code",
+    arb: "https://sepolia.arbiscan.io/address/0xA6611C57a0F60920e024b40a6E759c8cA37fC3f2#code",
+    base: "https://sepolia.basescan.org/address/0xcE808361050A504276179214672fb4C5bE19957e#code",
   },
   {
     name: "P256Verifier",
@@ -125,11 +125,11 @@ export function ContractsSection() {
             </div>
           </div>
           <p className="text-center text-muted-foreground text-sm">
-            Every Z0tz contract type deployed and etherscan-verified on Base Sepolia, Ethereum Sepolia,
-            and Arbitrum Sepolia. Circle CCTP V2 (
+            V6 deployment — every Z0tz contract type deployed and etherscan-verified on Base
+            Sepolia, Ethereum Sepolia, and Arbitrum Sepolia. Circle CCTP V2 (
             <code className="text-foreground">TokenMessengerV2</code>,{" "}
-            <code className="text-foreground">MessageTransmitterV2</code>) serves as the bridge layer for
-            real USDC at known canonical addresses.
+            <code className="text-foreground">MessageTransmitterV2</code>) serves as the bridge
+            layer for real USDC at known canonical addresses.
           </p>
         </div>
 
