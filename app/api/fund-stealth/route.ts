@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, createWalletClient, http, parseEther, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
-import { p256 } from "@noble/curves/p256.js";
-import { sha256 } from "@noble/hashes/sha2.js";
+import { p256 } from "@noble/curves/nist.js";
+import { createHash } from "node:crypto";
+
+function sha256(data: Uint8Array): Uint8Array {
+  return new Uint8Array(createHash("sha256").update(data).digest());
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,11 +44,9 @@ function verifyAuth(req: NextRequest, body: Record<string, unknown>): { valid: b
     const { signature: _s, ...bodyNoSig } = body;
     const canonical = JSON.stringify(bodyNoSig, Object.keys(bodyNoSig).sort());
     const message = sha256(new TextEncoder().encode(canonical));
-    const clean = sigHex.replace(/^0x/, "");
-    const r = BigInt("0x" + clean.slice(0, 64)); const s = BigInt("0x" + clean.slice(64));
+    const sigBytes = hexToBytes(sigHex); // 64-byte r||s
     const pubKey = new Uint8Array(65); pubKey[0] = 0x04; pubKey.set(xBytes, 1); pubKey.set(yBytes, 33);
-    const sig = new p256.Signature(r, s).toCompactRawBytes();
-    return { valid: p256.verify(sig, message, pubKey), legacy: false };
+    return { valid: p256.verify(sigBytes, message, pubKey), legacy: false };
   } catch { return { valid: false, legacy: false, error: "Verification failed" }; }
 }
 
