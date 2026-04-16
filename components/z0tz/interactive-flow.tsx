@@ -196,7 +196,7 @@ export function InteractiveFlow() {
           role="img"
           aria-labelledby={`flow-title-${scenario.id}`}
         >
-          <title id={`flow-title-${scenario.id}`}>{scenario.title}: {scenario.blurb}</title>
+          <title id={`flow-title-${scenario.id}`}>{`${scenario.title}: ${scenario.blurb}`}</title>
           <defs>
             <marker id="flow-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
               <path d="M0,0 L10,5 L0,10 z" fill="#E63946" />
