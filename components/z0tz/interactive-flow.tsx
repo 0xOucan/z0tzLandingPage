@@ -45,21 +45,25 @@ const NODES_POOL: Record<string, Node> = {
 }
 
 const SCENARIOS: Scenario[] = [
+  // Every scenario is laid out symmetrically around the viewBox midpoint
+  // (480) so switching tabs doesn't pull the composition left or right.
+  // 3-node scenarios: 210 · 480 · 750 (270px gap). 5-node: 80 · 280 · 480 ·
+  // 680 · 880 (200px gap).
   {
     id: "cashin-same",
     title: "Cash in · same chain",
     blurb:
       "Money arrives at a stealth EOA — a throwaway address you never reuse for identity. The sweeper atomically wraps it, takes a 1% fee, and credits your encrypted ledger. From then on the balance is FHE-encrypted on chain.",
     nodes: [
-      { ...NODES_POOL.ext, x: 100, y: 180 },
-      { ...NODES_POOL.stealth, x: 310, y: 180 },
-      { ...NODES_POOL.ledgerA, x: 560, y: 180 },
+      { ...NODES_POOL.ext,     x: 210, y: 180 },
+      { ...NODES_POOL.stealth, x: 480, y: 180 },
+      { ...NODES_POOL.ledgerA, x: 750, y: 180 },
     ],
     edges: [
       { from: "ext",     to: "stealth", label: "faucet · salary" },
       { from: "stealth", to: "ledgerA", label: "sweep · 1% fee" },
     ],
-    pathD: "M 100,180 L 310,180 L 560,180",
+    pathD: "M 210,180 L 480,180 L 750,180",
   },
   {
     id: "cashin-cross",
@@ -67,19 +71,19 @@ const SCENARIOS: Scenario[] = [
     blurb:
       "Funds landed on chain A but your ledger lives on chain B. Z0tz burns USDC on A via Circle CCTP, mints to a fresh ephemeral on B, then sweeps straight into your encrypted ledger on B. One click, one signature.",
     nodes: [
-      { ...NODES_POOL.ext, x: 60, y: 180 },
-      { ...NODES_POOL.stealth, x: 250, y: 180, sub: "on chain A" },
-      { ...NODES_POOL.bridgeA, x: 460, y: 180 },
-      { ...NODES_POOL.ephB, x: 660, y: 180, label: "Ephemeral B" },
+      { ...NODES_POOL.ext,     x: 80,  y: 180 },
+      { ...NODES_POOL.stealth, x: 280, y: 180, sub: "on chain A" },
+      { ...NODES_POOL.bridgeA, x: 480, y: 180 },
+      { ...NODES_POOL.ephB,    x: 680, y: 180, label: "Ephemeral B" },
       { ...NODES_POOL.ledgerB, x: 880, y: 180 },
     ],
     edges: [
-      { from: "ext", to: "stealth",   label: "deposit" },
+      { from: "ext",     to: "stealth", label: "deposit" },
       { from: "stealth", to: "bridgeA", label: "burn" },
-      { from: "bridgeA", to: "ephB",   label: "mint" },
-      { from: "ephB", to: "ledgerB",   label: "sweep" },
+      { from: "bridgeA", to: "ephB",    label: "mint" },
+      { from: "ephB",    to: "ledgerB", label: "sweep" },
     ],
-    pathD: "M 60,180 L 250,180 L 460,180 L 660,180 L 880,180",
+    pathD: "M 80,180 L 280,180 L 480,180 L 680,180 L 880,180",
   },
   {
     id: "cashout-same",
@@ -87,15 +91,15 @@ const SCENARIOS: Scenario[] = [
     blurb:
       "Your encrypted ledger on chain A debits, an ephemeral stealth receives the plaintext USDC, and it forwards to any EOA you name. The ledger balance drops, privately, and the recipient only ever sees the ephemeral address.",
     nodes: [
-      { ...NODES_POOL.ledgerA, x: 100, y: 180 },
-      { ...NODES_POOL.ephA,    x: 370, y: 180 },
-      { ...NODES_POOL.target,  x: 620, y: 180, sub: "chain A" },
+      { ...NODES_POOL.ledgerA, x: 210, y: 180 },
+      { ...NODES_POOL.ephA,    x: 480, y: 180 },
+      { ...NODES_POOL.target,  x: 750, y: 180, sub: "chain A" },
     ],
     edges: [
       { from: "ledgerA", to: "ephA",   label: "spend" },
       { from: "ephA",    to: "target", label: "forward" },
     ],
-    pathD: "M 100,180 L 370,180 L 620,180",
+    pathD: "M 210,180 L 480,180 L 750,180",
   },
   {
     id: "cashout-cross",
@@ -103,19 +107,19 @@ const SCENARIOS: Scenario[] = [
     blurb:
       "Ledger on chain A debits to an ephemeral, that ephemeral burns via CCTP, a second ephemeral on chain B receives the mint, and the funds forward to a target on chain B. All this in one orchestrated flow.",
     nodes: [
-      { ...NODES_POOL.ledgerA, x: 40, y: 180 },
-      { ...NODES_POOL.ephA,    x: 240, y: 180, label: "Ephemeral A" },
-      { ...NODES_POOL.bridgeA, x: 440, y: 180 },
-      { ...NODES_POOL.ephB,    x: 640, y: 180, label: "Ephemeral B" },
-      { ...NODES_POOL.target,  x: 860, y: 180, sub: "chain B" },
+      { ...NODES_POOL.ledgerA, x: 80,  y: 180 },
+      { ...NODES_POOL.ephA,    x: 280, y: 180, label: "Ephemeral A" },
+      { ...NODES_POOL.bridgeA, x: 480, y: 180 },
+      { ...NODES_POOL.ephB,    x: 680, y: 180, label: "Ephemeral B" },
+      { ...NODES_POOL.target,  x: 880, y: 180, sub: "chain B" },
     ],
     edges: [
-      { from: "ledgerA", to: "ephA",   label: "spend" },
+      { from: "ledgerA", to: "ephA",    label: "spend" },
       { from: "ephA",    to: "bridgeA", label: "burn" },
-      { from: "bridgeA", to: "ephB",   label: "mint" },
-      { from: "ephB",    to: "target", label: "forward" },
+      { from: "bridgeA", to: "ephB",    label: "mint" },
+      { from: "ephB",    to: "target",  label: "forward" },
     ],
-    pathD: "M 40,180 L 240,180 L 440,180 L 640,180 L 860,180",
+    pathD: "M 80,180 L 280,180 L 480,180 L 680,180 L 880,180",
   },
   {
     id: "bridge-self",
@@ -123,19 +127,19 @@ const SCENARIOS: Scenario[] = [
     blurb:
       "You want your money on chain B instead of chain A. Ledger A debits to an ephemeral, CCTP bridges, the dst ephemeral sweeps into ledger B. Both ends belong to you — nothing leaves your passkey's control.",
     nodes: [
-      { ...NODES_POOL.ledgerA, x: 40, y: 180 },
-      { ...NODES_POOL.ephA,    x: 240, y: 180, label: "Ephemeral A" },
-      { ...NODES_POOL.bridgeA, x: 440, y: 180 },
-      { ...NODES_POOL.ephB,    x: 640, y: 180, label: "Ephemeral B" },
-      { ...NODES_POOL.ledgerB, x: 860, y: 180 },
+      { ...NODES_POOL.ledgerA, x: 80,  y: 180 },
+      { ...NODES_POOL.ephA,    x: 280, y: 180, label: "Ephemeral A" },
+      { ...NODES_POOL.bridgeA, x: 480, y: 180 },
+      { ...NODES_POOL.ephB,    x: 680, y: 180, label: "Ephemeral B" },
+      { ...NODES_POOL.ledgerB, x: 880, y: 180 },
     ],
     edges: [
-      { from: "ledgerA", to: "ephA",   label: "spend" },
+      { from: "ledgerA", to: "ephA",    label: "spend" },
       { from: "ephA",    to: "bridgeA", label: "burn" },
-      { from: "bridgeA", to: "ephB",   label: "mint" },
+      { from: "bridgeA", to: "ephB",    label: "mint" },
       { from: "ephB",    to: "ledgerB", label: "sweep" },
     ],
-    pathD: "M 40,180 L 240,180 L 440,180 L 640,180 L 860,180",
+    pathD: "M 80,180 L 280,180 L 480,180 L 680,180 L 880,180",
   },
 ]
 
