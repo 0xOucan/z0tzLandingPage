@@ -45,27 +45,20 @@ const milestones: Milestone[] = [
     status: "done",
   },
 
-  // ── Current — the work happening this month ──────────────────────────
+  // ── Next — concrete commitments ──────────────────────────────────────
   {
-    title: "Landing page, docs, and FHEIP-0001",
-    desc: "V6.5-accurate product site and internal docs. FHEIP-0001 proposes passkey-bound viewer permits upstream so any Fhenix wallet can skip the HKDF secp256k1 step and sign decryption requests directly with a WebAuthn credential.",
-    status: "current",
-  },
-
-  // ── Next — concrete commitments we can demo ──────────────────────────
-  {
-    title: "Any permissionless rail, not just CCTP",
-    desc: "The cash-in / cash-out flow is rail-agnostic by design. Next integrations: LayerZero, Hyperlane, canonical bridges. Z0tz becomes a privacy wrapper for any permissionless protocol — bridge, DEX, lending, payments.",
+    title: "Composability · DeFi integration",
+    desc: "Wire the permanent smart-account stealth family into lending, DEX, and yield protocols. Deposit from an encrypted ledger, route the approval through a stealth, keep the position pseudonymous — without leaking the rest of the wallet balance.",
     status: "next",
   },
   {
-    title: "Network-layer privacy",
-    desc: "Tor / NYM SOCKS5 in the Electron transport layer. Encrypted RPC endpoints. IP and timing metadata leave the scope of the observer who already sees your on-chain activity.",
+    title: "KYC · AML compliance lane",
+    desc: "An opt-in view key that lets a regulated counterparty (exchange, payroll provider, tax filing) decrypt a bounded subset of the ledger under a time-limited permit. Privacy by default, selective disclosure when the user signs for it.",
     status: "next",
   },
   {
-    title: "Multi-device passkey sync",
-    desc: "WebAuthn passkey roaming across phone + desktop so the same ledger is reachable from either. Requires no change to on-chain contracts; all state in main-process keystore.",
+    title: "More permissionless protocols",
+    desc: "CCTP is one rail. Next integrations: LayerZero, Hyperlane, canonical bridges, payment rails. The cash-in / cash-out flow stays the same; the route inside changes. Z0tz becomes a privacy wrapper around any permissionless protocol.",
     status: "next",
   },
 
@@ -114,7 +107,6 @@ export function RoadmapSection() {
           {/* Legend */}
           <div className="mt-12 text-center flex items-center justify-center gap-6 text-xs text-muted-foreground flex-wrap">
             <span><span className="text-foreground/60">✓</span> shipped</span>
-            <span><span className="text-accent">→</span> current</span>
             <span><span className="text-foreground/60">◆</span> next</span>
             <span><span className="text-foreground/30">○</span> later</span>
           </div>
