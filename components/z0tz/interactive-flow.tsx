@@ -188,10 +188,10 @@ export function InteractiveFlow() {
       {/* Diagram */}
       <div
         className="relative w-full"
-        style={{ aspectRatio: "960 / 360" }}
+        style={{ aspectRatio: "1040 / 400" }}
       >
         <svg
-          viewBox="0 0 960 360"
+          viewBox="-40 -20 1040 400"
           className="absolute inset-0 h-full w-full"
           role="img"
           aria-labelledby={`flow-title-${scenario.id}`}
