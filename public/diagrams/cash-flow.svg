@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">Z0tz cash flow — same-chain and cross-chain in both directions</title>
+  <desc id="desc">Plaintext USDC enters via a stealth EOA and is swept into an encrypted ledger on the same or a remote chain. Spending reverses the path, delivering funds to any EOA on any chain.</desc>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8A8A8A"/>
+    </marker>
+    <marker id="arrAcc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#E63946"/>
+    </marker>
+    <linearGradient id="ledgerG" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7A0F0F" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#2C2C2C" stop-opacity="0.7"/>
+    </linearGradient>
+  </defs>
+  <style>
+    .bg { fill: #000; }
+    .node { fill: #1a1a1a; stroke: rgba(245,245,245,0.15); }
+    .node-accent { fill: url(#ledgerG); stroke: rgba(230,57,70,0.55); }
+    .node-ephem  { fill: #0f0f0f; stroke: rgba(245,245,245,0.08); stroke-dasharray: 4 3; }
+    .cctp        { fill: #0a0a0a; stroke: rgba(245,245,245,0.25); }
+    .lbl       { fill: #F5F5F5; font: 600 13px 'IBM Plex Mono', monospace; }
+    .lbl-sub   { fill: #8A8A8A; font: 400 11px 'IBM Plex Mono', monospace; }
+    .lbl-group { fill: #8A8A8A; font: 600 11px 'IBM Plex Mono', monospace; letter-spacing: 2px; text-transform: uppercase; }
+    .path      { fill: none; stroke: #8A8A8A; stroke-width: 1.2; }
+    .path-accent { fill: none; stroke: #E63946; stroke-width: 1.5; }
+    .path-dash { fill: none; stroke: #8A8A8A; stroke-width: 1; stroke-dasharray: 4 3; }
+    .pill      { fill: rgba(245,245,245,0.04); stroke: rgba(245,245,245,0.08); }
+  </style>
+
+  <rect class="bg" width="960" height="520"/>
+
+  <!-- Top row: cash-in -->
+  <text x="40" y="32" class="lbl-group">Cash in</text>
+  <rect class="pill" x="30" y="48" width="900" height="172" rx="16"/>
+
+  <!-- Same-chain cash-in -->
+  <text x="56" y="74" class="lbl-sub">Same chain</text>
+  <rect class="node" x="56" y="88" width="140" height="48" rx="10"/>
+  <text x="126" y="108" class="lbl" text-anchor="middle">Faucet · CEX</text>
+  <text x="126" y="124" class="lbl-sub" text-anchor="middle">Salary</text>
+
+  <rect class="node" x="232" y="88" width="140" height="48" rx="10"/>
+  <text x="302" y="108" class="lbl" text-anchor="middle">Stealth EOA</text>
+  <text x="302" y="124" class="lbl-sub" text-anchor="middle">multi-sweep</text>
+
+  <rect class="node-accent" x="408" y="88" width="152" height="48" rx="10"/>
+  <text x="484" y="108" class="lbl" text-anchor="middle">Encrypted ledger</text>
+  <text x="484" y="124" class="lbl-sub" text-anchor="middle">chain A</text>
+
+  <path class="path" d="M196,112 L232,112" marker-end="url(#arr)"/>
+  <path class="path-accent" d="M372,112 L408,112" marker-end="url(#arrAcc)"/>
+
+  <!-- Cross-chain cash-in -->
+  <text x="580" y="74" class="lbl-sub">Cross chain</text>
+  <rect class="node" x="580" y="88" width="110" height="48" rx="10"/>
+  <text x="635" y="108" class="lbl" text-anchor="middle">Stealth A</text>
+  <text x="635" y="124" class="lbl-sub" text-anchor="middle">chain A</text>
+
+  <circle class="cctp" cx="754" cy="112" r="28"/>
+  <text x="754" y="108" class="lbl" text-anchor="middle">CCTP</text>
+  <text x="754" y="122" class="lbl-sub" text-anchor="middle">V2</text>
+
+  <rect class="node-ephem" x="802" y="88" width="110" height="48" rx="10"/>
+  <text x="857" y="108" class="lbl" text-anchor="middle">Stealth B</text>
+  <text x="857" y="124" class="lbl-sub" text-anchor="middle">ephemeral</text>
+
+  <path class="path" d="M690,112 L726,112" marker-end="url(#arr)"/>
+  <path class="path" d="M782,112 L802,112" marker-end="url(#arr)"/>
+  <path class="path-accent" d="M857,136 Q857,170 600,180 T484,162" marker-end="url(#arrAcc)"/>
+  <text x="720" y="198" class="lbl-sub" text-anchor="middle">sweep into dst ledger</text>
+
+  <!-- Middle band: at rest -->
+  <rect class="pill" x="30" y="240" width="900" height="68" rx="16"/>
+  <text x="40" y="232" class="lbl-group">At rest</text>
+  <text x="480" y="268" class="lbl" text-anchor="middle">FHE-encrypted balance per pseudonymous ledger ID</text>
+  <text x="480" y="288" class="lbl-sub" text-anchor="middle">Gasless reveal via passkey-derived viewer permit. No on-chain decrypt tx.</text>
+
+  <!-- Bottom row: cash-out -->
+  <text x="40" y="340" class="lbl-group">Cash out</text>
+  <rect class="pill" x="30" y="356" width="900" height="140" rx="16"/>
+
+  <!-- Same-chain cashout -->
+  <text x="56" y="382" class="lbl-sub">Same chain</text>
+  <rect class="node-accent" x="56" y="396" width="152" height="48" rx="10"/>
+  <text x="132" y="416" class="lbl" text-anchor="middle">Encrypted ledger</text>
+  <text x="132" y="432" class="lbl-sub" text-anchor="middle">chain A</text>
+
+  <rect class="node-ephem" x="240" y="396" width="130" height="48" rx="10"/>
+  <text x="305" y="416" class="lbl" text-anchor="middle">Ephemeral</text>
+  <text x="305" y="432" class="lbl-sub" text-anchor="middle">one-shot</text>
+
+  <rect class="node" x="402" y="396" width="130" height="48" rx="10"/>
+  <text x="467" y="416" class="lbl" text-anchor="middle">Target EOA</text>
+  <text x="467" y="432" class="lbl-sub" text-anchor="middle">chain A</text>
+
+  <path class="path-accent" d="M208,420 L240,420" marker-end="url(#arrAcc)"/>
+  <path class="path" d="M370,420 L402,420" marker-end="url(#arr)"/>
+
+  <!-- Cross-chain cashout -->
+  <text x="580" y="382" class="lbl-sub">Cross chain</text>
+  <rect class="node-ephem" x="580" y="396" width="110" height="48" rx="10"/>
+  <text x="635" y="416" class="lbl" text-anchor="middle">Ephemeral A</text>
+  <text x="635" y="432" class="lbl-sub" text-anchor="middle">one-shot</text>
+
+  <circle class="cctp" cx="754" cy="420" r="28"/>
+  <text x="754" y="416" class="lbl" text-anchor="middle">CCTP</text>
+  <text x="754" y="430" class="lbl-sub" text-anchor="middle">V2</text>
+
+  <rect class="node" x="802" y="396" width="110" height="48" rx="10"/>
+  <text x="857" y="416" class="lbl" text-anchor="middle">Target EOA</text>
+  <text x="857" y="432" class="lbl-sub" text-anchor="middle">chain B</text>
+
+  <path class="path-accent" d="M132,444 Q132,470 580,460" marker-end="url(#arrAcc)"/>
+  <path class="path" d="M690,420 L726,420" marker-end="url(#arr)"/>
+  <path class="path" d="M782,420 L802,420" marker-end="url(#arr)"/>
+</svg>

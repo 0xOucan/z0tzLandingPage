@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 460" role="img" aria-labelledby="t2 d2">
+  <title id="t2">Three stealth-address families all derived from one passkey</title>
+  <desc id="d2">Cash-in stealths, permanent smart-account stealths, and permanent EOA stealths all derive from a single WebAuthn P-256 passkey.</desc>
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8A8A8A"/>
+    </marker>
+    <marker id="arr2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#E63946"/>
+    </marker>
+    <radialGradient id="pkG" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E63946" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#7A0F0F" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <style>
+    .bg { fill: #000; }
+    .node { fill: #1a1a1a; stroke: rgba(245,245,245,0.15); }
+    .node-accent { fill: rgba(230,57,70,0.1); stroke: rgba(230,57,70,0.55); }
+    .lbl       { fill: #F5F5F5; font: 600 13px 'IBM Plex Mono', monospace; }
+    .lbl-sub   { fill: #8A8A8A; font: 400 11px 'IBM Plex Mono', monospace; }
+    .lbl-title { fill: #F5F5F5; font: 700 15px 'IBM Plex Mono', monospace; }
+    .lbl-group { fill: #8A8A8A; font: 600 11px 'IBM Plex Mono', monospace; letter-spacing: 2px; text-transform: uppercase; }
+    .path      { fill: none; stroke: #8A8A8A; stroke-width: 1.2; }
+    .path-dash { fill: none; stroke: #8A8A8A; stroke-width: 1; stroke-dasharray: 4 3; }
+  </style>
+
+  <rect class="bg" width="960" height="460"/>
+
+  <!-- Passkey center -->
+  <circle cx="480" cy="80" r="70" fill="url(#pkG)"/>
+  <circle class="node-accent" cx="480" cy="80" r="44"/>
+  <text x="480" y="78" class="lbl-title" text-anchor="middle">Passkey</text>
+  <text x="480" y="96" class="lbl-sub" text-anchor="middle">P-256 · WebAuthn</text>
+
+  <!-- Three derivation labels -->
+  <text x="180" y="174" class="lbl-group" text-anchor="middle">HKDF · cashin tag</text>
+  <text x="480" y="174" class="lbl-group" text-anchor="middle">CREATE2 factory</text>
+  <text x="780" y="174" class="lbl-group" text-anchor="middle">HKDF · EOA tag</text>
+
+  <!-- Lines from passkey to each branch -->
+  <path class="path-dash" d="M440,110 Q320,140 200,170"/>
+  <path class="path-dash" d="M480,124 L480,170"/>
+  <path class="path-dash" d="M520,110 Q640,140 760,170"/>
+
+  <!-- Three family cards -->
+  <rect class="node" x="40" y="200" width="280" height="220" rx="16"/>
+  <text x="56" y="228" class="lbl-title">Cash-in stealths</text>
+  <text x="56" y="248" class="lbl-sub">HKDF(index) · secp256k1 EOA</text>
+  <text x="56" y="276" class="lbl">Disposable inboxes</text>
+  <text x="56" y="294" class="lbl-sub">One per deposit · or</text>
+  <text x="56" y="308" class="lbl-sub">multi-sweep for recurring</text>
+  <text x="56" y="326" class="lbl-sub">(salary, invoices)</text>
+  <text x="56" y="358" class="lbl">Use for</text>
+  <text x="56" y="376" class="lbl-sub">faucets · CEX withdrawals</text>
+  <text x="56" y="390" class="lbl-sub">employer payroll</text>
+
+  <rect class="node" x="340" y="200" width="280" height="220" rx="16"/>
+  <text x="356" y="228" class="lbl-title">Permanent smart accounts</text>
+  <text x="356" y="248" class="lbl-sub">ERC-4337 · paymaster-sponsored</text>
+  <text x="356" y="276" class="lbl">Stable CREATE2 addresses</text>
+  <text x="356" y="294" class="lbl-sub">One per salt · same passkey</text>
+  <text x="356" y="308" class="lbl-sub">recovery as main wallet</text>
+  <text x="356" y="340" class="lbl">Use for</text>
+  <text x="356" y="358" class="lbl-sub">DeFi composition</text>
+  <text x="356" y="376" class="lbl-sub">contract address identity</text>
+  <text x="356" y="390" class="lbl-sub">gasless UserOps</text>
+
+  <rect class="node" x="640" y="200" width="280" height="220" rx="16"/>
+  <text x="656" y="228" class="lbl-title">Permanent EOA stealths</text>
+  <text x="656" y="248" class="lbl-sub">HKDF(salt) · secp256k1 EOA</text>
+  <text x="656" y="276" class="lbl">Privkey extractable</text>
+  <text x="656" y="294" class="lbl-sub">PIN-gated reveal to hex</text>
+  <text x="656" y="308" class="lbl-sub">export to any wallet</text>
+  <text x="656" y="340" class="lbl">Use for</text>
+  <text x="656" y="358" class="lbl-sub">MetaMask portability</text>
+  <text x="656" y="376" class="lbl-sub">protocols that reject</text>
+  <text x="656" y="390" class="lbl-sub">smart accounts</text>
+</svg>

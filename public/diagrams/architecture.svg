@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" role="img" aria-labelledby="t3 d3">
+  <title id="t3">Z0tz architecture — GUI, relayer, paymaster, on-chain stack, CoFHE network</title>
+  <desc id="d3">The GUI unlocks a passkey locally, signs requests to a relayer that submits UserOps through a paymaster, runs sweeps through the sweeper into the vault, credits the encrypted ledger, and decrypts via the CoFHE threshold network.</desc>
+  <defs>
+    <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8A8A8A"/>
+    </marker>
+    <marker id="arr3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#E63946"/>
+    </marker>
+  </defs>
+  <style>
+    .bg { fill: #000; }
+    .node { fill: #1a1a1a; stroke: rgba(245,245,245,0.15); }
+    .node-local  { fill: #131313; stroke: rgba(245,245,245,0.22); }
+    .node-accent { fill: rgba(230,57,70,0.10); stroke: rgba(230,57,70,0.55); }
+    .node-ext    { fill: #0a0a0a; stroke: rgba(245,245,245,0.3); stroke-dasharray: 5 3; }
+    .lbl       { fill: #F5F5F5; font: 600 13px 'IBM Plex Mono', monospace; }
+    .lbl-sub   { fill: #8A8A8A; font: 400 10px 'IBM Plex Mono', monospace; }
+    .lbl-title { fill: #F5F5F5; font: 700 14px 'IBM Plex Mono', monospace; }
+    .lbl-group { fill: #8A8A8A; font: 600 10px 'IBM Plex Mono', monospace; letter-spacing: 2px; text-transform: uppercase; }
+    .path      { fill: none; stroke: #8A8A8A; stroke-width: 1.2; }
+    .path-accent { fill: none; stroke: #E63946; stroke-width: 1.5; }
+    .path-dash { fill: none; stroke: #8A8A8A; stroke-width: 1; stroke-dasharray: 4 3; }
+    .zone      { fill: rgba(245,245,245,0.035); stroke: rgba(245,245,245,0.08); }
+  </style>
+
+  <rect class="bg" width="960" height="560"/>
+
+  <!-- Zone: user device -->
+  <rect class="zone" x="20" y="30" width="280" height="160" rx="16"/>
+  <text x="34" y="50" class="lbl-group">User device</text>
+  <rect class="node-local" x="40" y="64" width="240" height="60" rx="10"/>
+  <text x="160" y="86" class="lbl" text-anchor="middle">Z0tz GUI</text>
+  <text x="160" y="102" class="lbl-sub" text-anchor="middle">Electron · React renderer</text>
+  <text x="160" y="114" class="lbl-sub" text-anchor="middle">PIN + passkey in main process</text>
+  <rect class="node-local" x="40" y="134" width="240" height="44" rx="10"/>
+  <text x="160" y="155" class="lbl" text-anchor="middle">Main process session</text>
+  <text x="160" y="170" class="lbl-sub" text-anchor="middle">5-min idle auto-lock · zero on exit</text>
+
+  <!-- Zone: off-chain service -->
+  <rect class="zone" x="330" y="30" width="280" height="160" rx="16"/>
+  <text x="344" y="50" class="lbl-group">Off-chain service</text>
+  <rect class="node" x="350" y="64" width="240" height="60" rx="10"/>
+  <text x="470" y="86" class="lbl" text-anchor="middle">Relayer</text>
+  <text x="470" y="102" class="lbl-sub" text-anchor="middle">P-256 passkey auth</text>
+  <text x="470" y="114" class="lbl-sub" text-anchor="middle">submits UserOps · funds stealth gas</text>
+  <rect class="node" x="350" y="134" width="240" height="44" rx="10"/>
+  <text x="470" y="155" class="lbl" text-anchor="middle">CCTP attestation proxy</text>
+  <text x="470" y="170" class="lbl-sub" text-anchor="middle">Circle iris API · rate-limited</text>
+
+  <!-- Zone: CoFHE -->
+  <rect class="zone" x="640" y="30" width="300" height="160" rx="16"/>
+  <text x="654" y="50" class="lbl-group">CoFHE network</text>
+  <rect class="node-ext" x="660" y="64" width="264" height="114" rx="10"/>
+  <text x="792" y="90" class="lbl" text-anchor="middle">Threshold-decryption MPC</text>
+  <text x="792" y="108" class="lbl-sub" text-anchor="middle">verifies viewer permit signature</text>
+  <text x="792" y="122" class="lbl-sub" text-anchor="middle">returns plaintext off-chain only</text>
+  <text x="792" y="152" class="lbl" text-anchor="middle">FHE.allow(ctHash, viewer)</text>
+  <text x="792" y="166" class="lbl-sub" text-anchor="middle">on-chain grant · off-chain reveal</text>
+
+  <!-- Connector lines between top zones -->
+  <path class="path" d="M280,94 L350,94" marker-end="url(#arr3)"/>
+  <path class="path-dash" d="M280,110 Q 500,200 790,90"/>
+
+  <!-- Zone: on-chain -->
+  <rect class="zone" x="20" y="218" width="920" height="310" rx="16"/>
+  <text x="34" y="238" class="lbl-group">On chain · Base Sepolia · Eth Sepolia · Arb Sepolia</text>
+
+  <rect class="node" x="40" y="254" width="180" height="56" rx="10"/>
+  <text x="130" y="276" class="lbl" text-anchor="middle">EntryPoint 0.7</text>
+  <text x="130" y="292" class="lbl-sub" text-anchor="middle">ERC-4337 standard</text>
+
+  <rect class="node" x="240" y="254" width="180" height="56" rx="10"/>
+  <text x="330" y="276" class="lbl" text-anchor="middle">Paymaster</text>
+  <text x="330" y="292" class="lbl-sub" text-anchor="middle">sponsors deploys · fee token</text>
+
+  <rect class="node" x="440" y="254" width="180" height="56" rx="10"/>
+  <text x="530" y="276" class="lbl" text-anchor="middle">Smart account</text>
+  <text x="530" y="292" class="lbl-sub" text-anchor="middle">CREATE2 · salt 0 = main</text>
+
+  <rect class="node" x="640" y="254" width="280" height="56" rx="10"/>
+  <text x="780" y="276" class="lbl" text-anchor="middle">Stealth EOA</text>
+  <text x="780" y="292" class="lbl-sub" text-anchor="middle">cash-in · ephemeral · permanent EOA</text>
+
+  <rect class="node-accent" x="40" y="340" width="240" height="70" rx="10"/>
+  <text x="160" y="364" class="lbl" text-anchor="middle">Sweeper V6.5.2</text>
+  <text x="160" y="380" class="lbl-sub" text-anchor="middle">privateSweepToLedger</text>
+  <text x="160" y="394" class="lbl-sub" text-anchor="middle">sweepNonceV2 · 1% fee</text>
+
+  <rect class="node-accent" x="310" y="340" width="220" height="70" rx="10"/>
+  <text x="420" y="364" class="lbl" text-anchor="middle">Vault</text>
+  <text x="420" y="380" class="lbl-sub" text-anchor="middle">holds FHERC20 wrap</text>
+  <text x="420" y="394" class="lbl-sub" text-anchor="middle">shield / unshield</text>
+
+  <rect class="node-accent" x="560" y="340" width="360" height="70" rx="10"/>
+  <text x="740" y="364" class="lbl" text-anchor="middle">Encrypted Ledger</text>
+  <text x="740" y="380" class="lbl-sub" text-anchor="middle">pseudonymous IDs · per-passkey HKDF</text>
+  <text x="740" y="394" class="lbl-sub" text-anchor="middle">spend · rotate · cashout actions</text>
+
+  <rect class="node" x="40" y="438" width="240" height="50" rx="10"/>
+  <text x="160" y="460" class="lbl" text-anchor="middle">Treasury</text>
+  <text x="160" y="476" class="lbl-sub" text-anchor="middle">1% sweeper fee</text>
+
+  <rect class="node" x="310" y="438" width="220" height="50" rx="10"/>
+  <text x="420" y="460" class="lbl" text-anchor="middle">FHERC20 wrapper</text>
+  <text x="420" y="476" class="lbl-sub" text-anchor="middle">Fhenix official · confidential</text>
+
+  <rect class="node" x="560" y="438" width="360" height="50" rx="10"/>
+  <text x="740" y="460" class="lbl" text-anchor="middle">CCTP V2 TokenMessenger</text>
+  <text x="740" y="476" class="lbl-sub" text-anchor="middle">Circle burn/mint · cross-chain USDC</text>
+
+  <!-- On-chain flow arrows -->
+  <path class="path" d="M220,282 L240,282" marker-end="url(#arr3)"/>
+  <path class="path" d="M420,282 L440,282" marker-end="url(#arr3)"/>
+  <path class="path" d="M620,282 L640,282" marker-end="url(#arr3)"/>
+  <path class="path-accent" d="M780,310 L780,330 Q780,340 160,340" marker-end="url(#arr3a)"/>
+  <path class="path-accent" d="M280,375 L310,375" marker-end="url(#arr3a)"/>
+  <path class="path-accent" d="M530,375 L560,375" marker-end="url(#arr3a)"/>
+  <path class="path" d="M160,410 L160,438" marker-end="url(#arr3)"/>
+  <path class="path" d="M420,410 L420,438" marker-end="url(#arr3)"/>
+  <path class="path" d="M740,410 L740,438" marker-end="url(#arr3)"/>
+
+  <!-- Cross-zone arrows -->
+  <path class="path" d="M160,190 L160,254" marker-end="url(#arr3)"/>
+  <path class="path" d="M470,190 L470,254" marker-end="url(#arr3)"/>
+  <path class="path-dash" d="M792,180 Q 792,300 740,340"/>
+</svg>

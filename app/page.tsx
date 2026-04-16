@@ -1,6 +1,7 @@
 import { Navbar } from "@/components/z0tz/navbar"
 import { HeroSection } from "@/components/z0tz/hero-section"
 import { WhySection } from "@/components/z0tz/why-section"
+import { DiagramsSection } from "@/components/z0tz/diagrams-section"
 import { PrivacyLayersSection } from "@/components/z0tz/privacy-layers-section"
 import { ArchitectureSection } from "@/components/z0tz/architecture-section"
 import { FlowSection } from "@/components/z0tz/flow-section"
@@ -19,6 +20,7 @@ export default function Home() {
       <Navbar />
       <HeroSection />
       <WhySection />
+      <DiagramsSection />
       <CLISection />
       <PrivacyLayersSection />
       <ArchitectureSection />
