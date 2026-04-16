@@ -92,52 +92,38 @@ export function TestnetSection() {
       <div ref={ref} className={`section-reveal ${revealed ? "revealed" : ""}`}>
       <div className="max-w-[1200px] mx-auto">
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-4 text-center text-foreground">
-          Verified on 3 Testnets
+          V6.5 benchmarks
         </h2>
         <p className="text-center text-muted-foreground mb-12 max-w-3xl mx-auto">
-          Three users, three chains, every capability — from the first deploy to the 12-step private
-          bridge. All gasless via paymaster, all tested end-to-end against live testnets.
+          End-to-end timings from the April 2026 super-script run against live
+          Sepolia testnets. Every number below is a median over six flows
+          (three chains, two directions each), not a single happy-path sample.
         </p>
 
-        {/* Chain status — always visible */}
-        <div className="flex flex-wrap justify-center gap-6 mb-12">
-          {chains.map((chain) => (
-            <div
-              key={chain.name}
-              className="flex items-center gap-2 border border-foreground/30 px-6 py-3"
-            >
-              <span className="text-foreground font-medium">{chain.name}</span>
-              <span className="text-foreground font-bold">
-                {chain.status ? "\u2713" : "\u2717"}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {/* CCTP headline numbers — always visible */}
+        {/* V6.5 headline numbers — always visible */}
         <div className="border border-foreground/30 p-6 mb-12 max-w-3xl mx-auto">
           <h3 className="text-sm font-bold uppercase tracking-wider mb-4 text-foreground text-center">
-            Real Circle CCTP V2 runs — Base Sepolia ↔ Arb Sepolia
+            Flow timings · April 2026
           </h3>
           <div className="grid md:grid-cols-3 gap-4 text-center">
             <div>
-              <div className="text-[var(--blood-red)] text-xs uppercase tracking-wider">Cross-Chain Cash In</div>
-              <div className="text-foreground font-bold text-2xl mt-1">38.6s</div>
-              <div className="text-muted-foreground text-xs mt-1">8 steps · 718K gas · $0.010</div>
+              <div className="text-[var(--blood-red)] text-xs uppercase tracking-wider">Cash In · same chain</div>
+              <div className="text-foreground font-bold text-2xl mt-1">~4s</div>
+              <div className="text-muted-foreground text-xs mt-1">622–668K gas · sweep + ledger credit</div>
             </div>
             <div>
-              <div className="text-[var(--blood-red)] text-xs uppercase tracking-wider">Private Bridge</div>
-              <div className="text-foreground font-bold text-2xl mt-1">64.2s</div>
-              <div className="text-muted-foreground text-xs mt-1">12 steps · 1.94M gas · $0.024</div>
+              <div className="text-[var(--blood-red)] text-xs uppercase tracking-wider">Cash Out · cross chain</div>
+              <div className="text-foreground font-bold text-2xl mt-1">~90s</div>
+              <div className="text-muted-foreground text-xs mt-1">spend + unshield + CCTP + forward</div>
             </div>
             <div>
-              <div className="text-[var(--blood-red)] text-xs uppercase tracking-wider">Cross-Chain Cash Out</div>
-              <div className="text-foreground font-bold text-2xl mt-1">52.4s</div>
-              <div className="text-muted-foreground text-xs mt-1">10 steps · 541K gas · $0.007</div>
+              <div className="text-[var(--blood-red)] text-xs uppercase tracking-wider">Bridge · self ledger</div>
+              <div className="text-foreground font-bold text-2xl mt-1">~75s</div>
+              <div className="text-muted-foreground text-xs mt-1">CCTP V2 Fast Transfer · auto-swept</div>
             </div>
           </div>
           <p className="text-center text-muted-foreground text-xs mt-4">
-            Fast Transfer fee: ~1.3 bps on testnet (free on mainnet for small amounts via the FastTransferAllowance pool)
+            Multi-sweep second-pass on the same stealth costs ~467K gas — the ledger credit amortizes over subsequent deposits.
           </p>
         </div>
 

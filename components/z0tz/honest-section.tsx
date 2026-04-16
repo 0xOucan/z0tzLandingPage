@@ -10,66 +10,65 @@ interface PrivacyRow {
   notes: string
 }
 
+/**
+ * V6.5 operation map. Names match the contracts and the GUI wiring — not the
+ * legacy V6 shield/unshield vocabulary. Content reinterprets the concepts
+ * from docs/internal/z0tz-article-v6.5.md rather than quoting it.
+ */
 const rows: PrivacyRow[] = [
   {
-    op: "Faucet / Mint",
-    publicData: "Recipient, plaintext amount",
+    op: "Faucet · external deposit",
+    publicData: "Recipient stealth EOA, plaintext USDC amount",
     privateData: "—",
-    notes: "Plaintext ERC-20 transfer. Amount is in calldata and the Transfer event.",
+    notes: "The initial hop is a standard ERC-20 transfer. Amounts are visible until the sweeper runs.",
   },
   {
-    op: "Shield (ERC-20 → FHERC20)",
-    publicData: "User, wrapped token, plaintext amount",
+    op: "privateSweepToLedger",
+    publicData: "Stealth EOA, plaintext USDC amount, 1% fee, ledger ID, sweep nonce",
+    privateData: "Credit amount is posted to the ledger as an encrypted handle, not a number",
+    notes: "The sweeper is the one chokepoint for every cash-in. Its call set is the anonymity set.",
+  },
+  {
+    op: "Vault.creditFromVault",
+    publicData: "Vault, ledger, pseudonymous ledger ID, ciphertext handle",
+    privateData: "Balance amount (FHE-encrypted euint64)",
+    notes: "The vault holds the wrap; the ledger records only handles. Observers see routing, not value.",
+  },
+  {
+    op: "Ledger.spend · same-chain cashout",
+    publicData: "Old ledger ID, new ledger ID, spend action, ephemeral stealth recipient",
+    privateData: "Post-spend balance, debit amount",
+    notes: "One rotation per spend: the pseudonymous ID changes so past spends don't predict future ones.",
+  },
+  {
+    op: "CCTP V2 depositForBurn",
+    publicData: "Ephemeral stealth depositor, destDomain, mint recipient, plaintext USDC amount",
     privateData: "—",
-    notes: "shield(to, value) takes a uint256 value. Visible in calldata and events.",
+    notes: "Circle's permissionless burn. Both ends are one-time stealth EOAs — the user's account never appears.",
   },
   {
-    op: "Unshield (2-phase)",
-    publicData: "User, wrapped token, plaintext amount (after claim)",
-    privateData: "Amount is encrypted between unshield and claimUnshielded (a few blocks)",
-    notes: "2-phase defers the amount until TN verification — does not hide it permanently.",
-  },
-  {
-    op: "confidentialTransfer (in-wallet FHE)",
-    publicData: "Sender, recipient, ciphertext handle, gas",
-    privateData: "Amount (only the euint64 handle is visible)",
-    notes: "The only operation in Z0tz where the amount is genuinely hidden on-chain.",
-  },
-  {
-    op: "CCTP V2 depositForBurn (USDC)",
-    publicData: "Burner (stealthA), destDomain, mintRecipient (stealthB), plaintext amount",
+    op: "CCTP V2 receiveMessage",
+    publicData: "Ephemeral stealth recipient, plaintext USDC amount",
     privateData: "—",
-    notes: "Circle's permissionless burn. Both sender and mint recipient are one-time stealth addresses.",
+    notes: "Mint on the destination chain lands at the ephemeral; it's either swept into a ledger or forwarded to a target EOA.",
   },
   {
-    op: "CCTP V2 receiveMessage (USDC)",
-    publicData: "Caller (stealthB), plaintext amount, MessageReceived event",
-    privateData: "—",
-    notes: "Circle's permissionless mint on destination. Event names stealthB, never the user.",
-  },
-  {
-    op: "Legacy Z0tzBridge (MockUSDC, dev only)",
-    publicData: "Stealth source/dest, plaintext amount",
-    privateData: "—",
-    notes: "Kept for dev tests. No real-value flow depends on this contract anymore.",
-  },
-  {
-    op: "PrivateSweeperV2.privateSweep",
-    publicData: "Sweeper, stealth, recipient, plaintext amount of ERC-20, ciphertext handle for the encrypted credit",
-    privateData: "The encrypted credit to the recipient hides the credit amount",
-    notes: "Sweeper acts as mixing point — every user shields through it, so the contract becomes the apparent shielder.",
+    op: "Viewer permit decrypt",
+    publicData: "FHE.allow grant — ledger ID, viewer address, ciphertext handle",
+    privateData: "Decrypted amount (returned off-chain only, to the viewer EOA)",
+    notes: "No on-chain reveal tx. The CoFHE threshold network verifies the permit and returns plaintext to you.",
   },
   {
     op: "ERC-4337 UserOp execution",
-    publicData: "Sender (smart account), paymaster, full inner calldata",
+    publicData: "Sender smart account, paymaster, full inner calldata, gas",
     privateData: "—",
-    notes: "Smart accounts do not hide what function they called or with what args. Public calldata stays public.",
+    notes: "Smart-account UserOps don't hide function names or args. Calldata-level privacy is network-layer, not contract-layer.",
   },
   {
-    op: "Stealth Announcement event",
-    publicData: "Stealth address, ephemeral pubkey",
-    privateData: "Link between stealth and recipient meta-address (only the recipient with the viewing key can match)",
-    notes: "Announcements are public but only your scanner knows which ones belong to you.",
+    op: "Stealth generation · passkey HKDF",
+    publicData: "The stealth EOA itself when it appears on chain",
+    privateData: "The derivation index, the passkey, the link back to other addresses you control",
+    notes: "Cashin stealths, permanent smart accounts, permanent EOAs all derive from one passkey — the derivation map never leaves your device.",
   },
 ]
 
@@ -84,89 +83,81 @@ export function HonestSection() {
           What&apos;s Public, What&apos;s Private
         </h2>
         <p className="text-center text-muted-foreground mb-12 max-w-3xl mx-auto">
-          Z0tz is a privacy stack, not a magic black box. Different operations have different
-          privacy properties, and being explicit about this is more useful than marketing absolutes.
+          Z0tz is a privacy stack, not a black box. Being explicit about which operations
+          hide which fields is more useful than marketing absolutes. Everything below
+          is the V6.5 model that ships today.
         </p>
 
-        {/* Honest claims cards — always visible, the punchy message */}
+        {/* Honest claims cards */}
         <div className="grid md:grid-cols-2 gap-8 mb-12">
           <div className="border border-foreground/30 p-6 bg-secondary">
             <h3 className="text-lg font-bold uppercase tracking-wider mb-4 text-foreground">
-              What we do NOT claim
+              We don&apos;t claim
             </h3>
             <ul className="space-y-3 text-muted-foreground text-sm">
               <li>
-                <span className="text-foreground font-bold">Zero on-chain footprint.</span> Every
-                UserOperation is recorded with its full inner calldata, gas usage, and timestamps.
+                <span className="text-foreground font-bold">Zero on-chain footprint.</span>{" "}
+                Every UserOp, sweep, and bridge leaves a public row with its calldata, gas,
+                and timestamp. Encryption hides <em>amounts</em>, not <em>existence</em>.
               </li>
               <li>
-                <span className="text-foreground font-bold">All amounts hidden.</span> Only{" "}
-                <code className="text-foreground">confidentialTransfer</code> hides the amount.
-                Shield, unshield, faucet, and bridge operations all have public amounts.
+                <span className="text-foreground font-bold">Every amount hidden.</span>{" "}
+                The sweeper takes plaintext USDC in; CCTP burns plaintext USDC; only the
+                ledger side is FHE-encrypted. Clear-text wrap/unwrap boundaries are the
+                anonymity-set's price.
               </li>
               <li>
-                <span className="text-foreground font-bold">Metadata-level anonymity.</span>{" "}
-                Network-layer privacy (TOR/NYM, encrypted RPC) is on the roadmap and not yet shipped.
+                <span className="text-foreground font-bold">Metadata anonymity.</span>{" "}
+                IP, timing, and RPC-level metadata are out of scope until Tor/NYM routing
+                lands on the roadmap.
               </li>
               <li>
-                <span className="text-foreground font-bold">Trustless threshold network.</span>{" "}
-                The TN is a multi-party computation network with its own trust assumptions; Z0tz
-                inherits whatever guarantees CoFHE provides.
+                <span className="text-foreground font-bold">A trustless threshold network.</span>{" "}
+                Decryption guarantees are whatever CoFHE provides. Z0tz inherits that
+                trust model and makes it visible.
               </li>
             </ul>
           </div>
 
           <div className="border border-foreground/30 p-6 bg-secondary">
             <h3 className="text-lg font-bold uppercase tracking-wider mb-4 text-foreground">
-              What we DO claim
+              We do claim
             </h3>
             <ul className="space-y-3 text-muted-foreground text-sm">
               <li>
-                <span className="text-foreground font-bold">Address unlinkability.</span> An
-                observer scanning for a user&apos;s smart account will not find it directly
-                participating in private flows — they will find encrypted transfers via the
-                sweeper and a population of one-time stealth addresses.
+                <span className="text-foreground font-bold">Address unlinkability.</span>{" "}
+                An observer scanning for your smart account will find ephemeral stealth
+                EOAs and a sweeper — not a persistent balance history tied to one identity.
               </li>
               <li>
-                <span className="text-foreground font-bold">Cross-chain unlinkability.</span> An
-                observer at the destination of a Cross-Chain Cash Out cannot determine the source
-                chain, the intermediate stealth addresses, or the smart account that funded the
-                original encrypted balance — even though the amount is visible at every step.
+                <span className="text-foreground font-bold">Cross-chain unlinkability.</span>{" "}
+                CCTP uses fresh stealths on both sides. The destination observer can't
+                reconstruct the source chain, the source account, or the intermediate hops.
               </li>
               <li>
-                <span className="text-foreground font-bold">Mixing via the sweeper.</span>{" "}
-                Shielding events at PrivateSweeperV2 form a natural anonymity set as user count
-                grows. With one user it is one. With N users it is N.
+                <span className="text-foreground font-bold">Balance confidentiality at rest.</span>{" "}
+                The ledger stores ciphertext handles under pseudonymous IDs. Only a viewer
+                permit can decrypt — off chain, gaslessly, under your passkey.
               </li>
               <li>
-                <span className="text-foreground font-bold">In-wallet amount confidentiality.</span>{" "}
-                FHE <code className="text-foreground">confidentialTransfer</code> between smart
-                accounts genuinely hides the amount on-chain. Only the ciphertext handle is visible.
+                <span className="text-foreground font-bold">Anonymity set grows with users.</span>{" "}
+                One sweeper per chain aggregates every cash-in. With one user, the set is one.
+                With N users, it&apos;s N. No special mixers; the architecture mixes for free.
               </li>
             </ul>
           </div>
         </div>
 
-        <div className="border border-foreground/30 p-6 mb-12 max-w-3xl mx-auto bg-secondary">
-          <h3 className="text-sm font-bold uppercase tracking-wider mb-3 text-foreground text-center">
-            V6 audit (April 2026, ethskills)
-          </h3>
-          <p className="text-center text-muted-foreground text-sm">
-            <span className="text-foreground font-bold">0 Critical</span> ·{" "}
-            <span className="text-foreground font-bold">0 High</span> ·{" "}
-            <span className="text-foreground font-bold">5 Medium</span> ·{" "}
-            <span className="text-foreground font-bold">8 Low</span> — all High issues fixed.
-          </p>
-        </div>
-
-        <p className="text-center text-foreground text-sm font-medium mb-12">
-          Privacy is unlinkability between identities, not amount confidentiality at the wrap/unwrap boundary.
+        <p className="text-center text-foreground text-sm font-medium mb-12 max-w-3xl mx-auto">
+          The useful framing: Z0tz gives you <span className="text-[var(--bright-red)]">unlinkability between identities</span> everywhere
+          and <span className="text-[var(--bright-red)]">amount confidentiality at rest</span>. It does not give you plaintext invisibility at
+          the wrap/unwrap boundaries — and being honest about that boundary is what makes the rest trustworthy.
         </p>
 
-        {/* Full per-op table — expandable for visitors who want the complete map */}
+        {/* Full per-op table — expandable for the curious */}
         <Expandable
-          title="Full public / private map per operation"
-          summary="Every on-chain action Z0tz can perform, with what is public, what is private, and a one-line note explaining the trade-off."
+          title="Per-operation public / private map"
+          summary="Every on-chain action a V6.5 flow performs, what's public, what's private, and a one-line note on the trade-off."
           moreLabel="see the full table"
           lessLabel="hide the full table"
         >

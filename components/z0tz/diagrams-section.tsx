@@ -74,7 +74,7 @@ function DiagramBlockView({ b, priority }: { b: DiagramBlock; priority?: boolean
 
       {/* Full-bleed diagram — no card, no border. The page background shows
           through; the SVG is the hero. Clamp max width but let it breathe. */}
-      <div className="mx-auto w-full max-w-5xl px-6">
+      <div className="mx-auto w-full max-w-[1280px] px-4 md:px-6">
         <div className="relative w-full" style={{ aspectRatio: `${b.w} / ${b.h}` }}>
           <Image
             src={b.src}
@@ -122,7 +122,7 @@ export function DiagramsSection() {
             Five flows, one mental model. Pick a scenario to trace the path.
           </p>
         </div>
-        <div className="mx-auto w-full max-w-5xl px-6">
+        <div className="mx-auto w-full max-w-[1280px] px-4 md:px-6">
           <InteractiveFlow />
         </div>
       </RevealBlock>
