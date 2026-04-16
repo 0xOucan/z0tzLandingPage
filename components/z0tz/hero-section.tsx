@@ -27,21 +27,21 @@ export function HeroSection() {
           Z0tz
         </h1>
         <p className="text-xl md:text-2xl text-muted-foreground mb-4 animate-fade-in-up animation-delay-100">
-          FHE-native private wallet stack
+          A private wallet for moving money.
         </p>
         <p className="text-lg text-muted-foreground mb-8 animate-fade-in-up animation-delay-200">
-          from identity to execution to payments — V5 maximum privacy
+          Hold USDC in an FHE-encrypted ledger. Cash in from any chain. Cash out to any address.
         </p>
         <p className="text-foreground mb-12 animate-fade-in-up animation-delay-300">
-          No seed phrases. No identity-linked flows. Encrypted in-wallet activity.
+          No seed phrase. No linked identity. Balances never hit a public chain.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center animate-fade-in-up animation-delay-400">
           <a
-            href="#architecture"
+            href="#diagrams"
             className="border border-foreground bg-transparent text-foreground px-8 py-3 text-sm uppercase tracking-widest font-medium transition-all duration-200 hover:bg-foreground hover:text-background"
           >
-            Read Docs
+            See how it works
           </a>
           <a
             href="/app"
