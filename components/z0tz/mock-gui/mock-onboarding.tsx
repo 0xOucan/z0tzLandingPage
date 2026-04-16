@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { BatLogo } from "@/components/z0tz/bat-logo"
 
 interface MockOnboardingProps {
@@ -14,6 +14,7 @@ export function MockOnboarding({ onUnlocked }: MockOnboardingProps) {
   const [mode, setMode] = useState<Mode>("choose")
   const [digits, setDigits] = useState<string[]>(["", "", "", "", "", ""])
   const [err, setErr] = useState<string | null>(null)
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([])
 
   const enterDigit = (i: number, v: string) => {
     if (!/^\d?$/.test(v)) return
@@ -21,11 +22,33 @@ export function MockOnboarding({ onUnlocked }: MockOnboardingProps) {
     next[i] = v
     setDigits(next)
     setErr(null)
+    // Auto-advance to the next input so the user doesn't click each digit.
+    if (v && i < digits.length - 1) inputRefs.current[i + 1]?.focus()
     if (next.every((d) => d !== "")) {
       // Accept any 6-digit PIN in the preview. Real GUI verifies it by
       // decrypting the keystore with scrypt.
       setTimeout(() => onUnlocked(), 180)
     }
+  }
+
+  const onKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !digits[i] && i > 0) {
+      inputRefs.current[i - 1]?.focus()
+    }
+    if (e.key === "ArrowLeft" && i > 0) inputRefs.current[i - 1]?.focus()
+    if (e.key === "ArrowRight" && i < digits.length - 1) inputRefs.current[i + 1]?.focus()
+  }
+
+  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6)
+    if (!text) return
+    e.preventDefault()
+    const next = ["", "", "", "", "", ""]
+    for (let i = 0; i < text.length; i++) next[i] = text[i]
+    setDigits(next)
+    const focusAt = Math.min(text.length, 5)
+    inputRefs.current[focusAt]?.focus()
+    if (next.every((d) => d !== "")) setTimeout(() => onUnlocked(), 180)
   }
 
   return (
@@ -85,11 +108,14 @@ export function MockOnboarding({ onUnlocked }: MockOnboardingProps) {
               {digits.map((d, i) => (
                 <input
                   key={i}
+                  ref={(el) => { inputRefs.current[i] = el }}
                   type="password"
                   inputMode="numeric"
                   maxLength={1}
                   value={d}
                   onChange={(e) => enterDigit(i, e.target.value)}
+                  onKeyDown={(e) => onKeyDown(i, e)}
+                  onPaste={i === 0 ? onPaste : undefined}
                   className="mock-pin-digit"
                   autoFocus={i === 0}
                 />

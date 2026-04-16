@@ -2,42 +2,122 @@
 
 import { useState } from "react"
 
+// Matches /home/oucan/EVVM/FHE/Z0tz/gui/src/renderer/pages/CashOut.tsx:
+// Same-chain: pick chain + target EOA. Cross-chain: src + dst + target on dst.
+// Both go through Ledger.spend(Cashout) → ephemeral stealth → plaintext USDC
+// forwarded to the target.
 export function MockCashOut() {
-  const [tokenType, setTokenType] = useState<"usdc" | "mockusdc">("usdc")
+  const CHAINS = ["base-sepolia", "eth-sepolia", "arb-sepolia"] as const
+  const [mode, setMode] = useState<"same" | "cross">("same")
+  const [network, setNetwork] = useState<string>("base-sepolia")
+  const [srcNet, setSrcNet] = useState<string>("base-sepolia")
+  const [dstNet, setDstNet] = useState<string>("eth-sepolia")
+  const [amount, setAmount] = useState("1.0")
+  const [target, setTarget] = useState("")
+
+  const validAddr = /^0x[a-fA-F0-9]{40}$/.test(target)
+  const validAmount = parseFloat(amount) > 0
 
   return (
     <div>
       <h1 className="mock-page-title">Cash Out</h1>
-      <p className="mock-page-subtitle">Private exit via stealth — no link between you and the target</p>
+      <p className="mock-page-subtitle">
+        Debit your encrypted ledger, deliver plaintext USDC to any address.
+        Same chain or any chain you pick.
+      </p>
 
-      <div className="mock-pill-group" style={{ marginBottom: 24 }}>
-        <button className={`mock-pill${tokenType === "usdc" ? " active" : ""}`} onClick={() => setTokenType("usdc")}>USDC</button>
-        <button className={`mock-pill${tokenType === "mockusdc" ? " active" : ""}`} onClick={() => setTokenType("mockusdc")}>MockUSDC</button>
+      <div className="mock-toggle-row">
+        <button className={`mock-toggle ${mode === "same" ? "active" : ""}`} onClick={() => setMode("same")}>
+          Same chain
+        </button>
+        <button className={`mock-toggle ${mode === "cross" ? "active" : ""}`} onClick={() => setMode("cross")}>
+          Cross chain
+        </button>
       </div>
 
-      <div className="mock-card" style={{ maxWidth: 500 }}>
-        <div className="mock-card-title">Private Cash Out (via Stealth)</div>
+      {mode === "same" && (
+        <div className="mock-card">
+          <div className="mock-form-grid">
+            <label>
+              <div className="mock-label">Chain</div>
+              <select value={network} onChange={(e) => setNetwork(e.target.value)}>
+                {CHAINS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label>
+              <div className="mock-label">Amount (USDC)</div>
+              <input type="text" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </label>
+          </div>
+          <label style={{ display: "block", marginTop: 12 }}>
+            <div className="mock-label">Destination address (EOA · stealth · permanent stealth)</div>
+            <input
+              type="text"
+              placeholder="0x…"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              className={target === "" ? "" : validAddr ? "mock-valid" : "mock-invalid"}
+            />
+            <div className={`mock-field-hint ${target === "" ? "" : validAddr ? "ok" : "err"}`}>
+              {target === ""
+                ? "20-byte hex address (0x + 40 chars)"
+                : validAddr ? "✓ Valid address" : "✕ Not a valid 40-char hex address"}
+            </div>
+          </label>
+          <button
+            className="mock-btn mock-btn-primary"
+            style={{ marginTop: 12 }}
+            disabled={!validAddr || !validAmount}
+          >
+            Cash out
+          </button>
+        </div>
+      )}
 
-        <label className="mock-input-label">Destination wallet address</label>
-        <input className="mock-input" placeholder="0x..." style={{ marginBottom: 16 }} />
-
-        <label className="mock-input-label">Amount to cash out</label>
-        <input className="mock-input" placeholder="1.5" style={{ marginBottom: 16 }} />
-
-        <button className="mock-btn mock-btn-full">Cash Out (Stealth, Gasless)</button>
-      </div>
-
-      <div className="mock-card" style={{ maxWidth: 500 }}>
-        <div className="mock-card-title">Stealth Cash-Out Flow (Full Privacy)</div>
-        <ol style={{ fontSize: 13, color: "#8A8A8A", paddingLeft: 20, margin: 0, lineHeight: 2 }}>
-          <li>Encrypted transfer from your account to a one-time stealth address</li>
-          <li>Fund stealth with ETH for gas</li>
-          <li>Stealth unshields tokens (2-phase via threshold network)</li>
-          <li>Stealth claims plaintext tokens</li>
-          <li>Stealth sends to target address</li>
-          <li>Return remaining ETH to relayer treasury</li>
-        </ol>
-      </div>
+      {mode === "cross" && (
+        <div className="mock-card">
+          <div className="mock-form-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <label>
+              <div className="mock-label">From</div>
+              <select value={srcNet} onChange={(e) => setSrcNet(e.target.value)}>
+                {CHAINS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label>
+              <div className="mock-label">To</div>
+              <select value={dstNet} onChange={(e) => setDstNet(e.target.value)}>
+                {CHAINS.filter((c) => c !== srcNet).map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label>
+              <div className="mock-label">Amount (USDC)</div>
+              <input type="text" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </label>
+          </div>
+          <label style={{ display: "block", marginTop: 12 }}>
+            <div className="mock-label">Destination address on {dstNet}</div>
+            <input
+              type="text"
+              placeholder="0x…"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              className={target === "" ? "" : validAddr ? "mock-valid" : "mock-invalid"}
+            />
+            <div className={`mock-field-hint ${target === "" ? "" : validAddr ? "ok" : "err"}`}>
+              {target === ""
+                ? "20-byte hex address (0x + 40 chars)"
+                : validAddr ? "✓ Valid address" : "✕ Not a valid 40-char hex address"}
+            </div>
+          </label>
+          <button
+            className="mock-btn mock-btn-primary"
+            style={{ marginTop: 12 }}
+            disabled={!validAddr || !validAmount || srcNet === dstNet}
+          >
+            Bridge → cash out
+          </button>
+        </div>
+      )}
     </div>
   )
 }

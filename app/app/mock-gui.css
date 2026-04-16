@@ -622,3 +622,148 @@
   letter-spacing: 1px;
   font-size: 10px;
 }
+
+/* ═══ Cash In / Cash Out / Bridge shared form elements ═══ */
+
+.mock-toggle-row {
+  display: inline-flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border: 1px solid rgba(245, 245, 245, 0.12);
+  border-radius: 999px;
+  padding: 3px;
+  background: rgba(245, 245, 245, 0.04);
+}
+
+.mock-toggle {
+  font-family: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 6px 16px;
+  background: transparent;
+  border: none;
+  color: #8A8A8A;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 200ms, color 200ms;
+}
+
+.mock-toggle.active {
+  background: rgba(230, 57, 70, 0.22);
+  color: #F5F5F5;
+}
+
+.mock-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.mock-form-grid label {
+  display: block;
+}
+
+.mock-form-grid input,
+.mock-form-grid select,
+.mock-card input[type="text"],
+.mock-card select {
+  width: 100%;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #F5F5F5;
+  border: 1px solid rgba(245, 245, 245, 0.12);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 200ms, box-shadow 200ms;
+}
+
+.mock-card input[type="text"]:focus,
+.mock-card select:focus {
+  border-color: #E63946;
+  box-shadow: 0 0 0 3px rgba(230, 57, 70, 0.15);
+}
+
+.mock-card input.mock-valid {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.mock-card input.mock-invalid {
+  border-color: #E63946;
+  box-shadow: 0 0 0 3px rgba(230, 57, 70, 0.12);
+}
+
+.mock-label {
+  font-size: 11px;
+  color: #8A8A8A;
+  margin-bottom: 4px;
+}
+
+.mock-field-hint {
+  font-size: 11px;
+  color: #8A8A8A;
+  margin-top: 4px;
+  min-height: 14px;
+}
+.mock-field-hint.ok { color: #22c55e; }
+.mock-field-hint.err { color: #E63946; }
+
+.mock-inline-card {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(245, 245, 245, 0.08);
+  border-radius: 8px;
+}
+
+.mock-addr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.mock-addr-row code {
+  flex: 1;
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.mock-pending-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid rgba(245, 245, 245, 0.08);
+}
+
+/* Step progress in Bridge */
+.mock-step-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mock-step-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #8A8A8A;
+}
+.mock-step-line.active { color: #F5F5F5; }
+.mock-step-line.done   { color: #22c55e; }
+
+.mock-step-pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(245, 245, 245, 0.15);
+  flex-shrink: 0;
+}
+.mock-step-line.active .mock-step-pip { background: #E63946; }
+.mock-step-line.done   .mock-step-pip { background: #22c55e; }
