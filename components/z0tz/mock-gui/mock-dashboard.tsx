@@ -80,20 +80,6 @@ export function MockDashboard({ onNavigate }: MockDashboardProps) {
           </div>
         ))}
       </div>
-
-      {/* Inline shortcuts — match the V6.5 page list */}
-      <div className="mock-grid-actions" style={{ marginTop: 24 }}>
-        {[
-          ["cashin", "Cash In"],
-          ["cashout", "Cash Out"],
-          ["bridge", "Bridge"],
-          ["permanentStealths", "Permanent Stealths"],
-        ].map(([nav, label]) => (
-          <div className="mock-action-card" key={nav} onClick={() => onNavigate(nav)}>
-            {label}
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
