@@ -2,12 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, createWalletClient, http, parseEther, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
-import { p256 } from "@noble/curves/nist.js";
-import { createHash } from "node:crypto";
-
-function sha256(data: Uint8Array): Uint8Array {
-  return new Uint8Array(createHash("sha256").update(data).digest());
-}
+import { verifyRelayerAuth } from "@/lib/relayer/auth";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,38 +17,13 @@ const CHAINS: Record<number, any> = {
 };
 
 const RPCS: Record<number, string> = {
-  84532: "https://base-sepolia-rpc.publicnode.com",
-  11155111: "https://ethereum-sepolia-rpc.publicnode.com",
-  421614: "https://arbitrum-sepolia-rpc.publicnode.com",
+  84532: process.env.RPC_URL_84532 ?? "https://base-sepolia-rpc.publicnode.com",
+  11155111: process.env.RPC_URL_11155111 ?? "https://ethereum-sepolia-rpc.publicnode.com",
+  421614: process.env.RPC_URL_421614 ?? "https://arbitrum-sepolia-rpc.publicnode.com",
 };
 
-// Rate limit: max requests per IP per hour (set via FUND_STEALTH_LIMIT env, default 50)
 const FUND_LIMIT = Number(process.env.FUND_STEALTH_LIMIT ?? "50");
 const fundLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-/** Verify P-256 passkey auth from request headers. Returns null if no auth (backward compat). */
-function verifyAuth(req: NextRequest, body: Record<string, unknown>): { valid: boolean; legacy: boolean; error?: string } {
-  const pubX = req.headers.get("x-z0tz-pubx");
-  const pubY = req.headers.get("x-z0tz-puby");
-  const sigHex = req.headers.get("x-z0tz-sig");
-  if (!pubX || !pubY) return { valid: true, legacy: true }; // no auth = backward compat
-  if (!sigHex || sigHex.replace(/^0x/, "").length !== 128) return { valid: false, legacy: false, error: "Invalid signature" };
-  try {
-    const xBytes = hexToBytes(pubX); const yBytes = hexToBytes(pubY);
-    if (xBytes.length !== 32 || yBytes.length !== 32) return { valid: false, legacy: false, error: "Invalid public key" };
-    const { signature: _s, ...bodyNoSig } = body;
-    const canonical = JSON.stringify(bodyNoSig, Object.keys(bodyNoSig).sort());
-    const message = sha256(new TextEncoder().encode(canonical));
-    const sigBytes = hexToBytes(sigHex); // 64-byte r||s
-    const pubKey = new Uint8Array(65); pubKey[0] = 0x04; pubKey.set(xBytes, 1); pubKey.set(yBytes, 33);
-    return { valid: p256.verify(sigBytes, message, pubKey), legacy: false };
-  } catch { return { valid: false, legacy: false, error: "Verification failed" }; }
-}
-
-function hexToBytes(h: string): Uint8Array {
-  const c = h.replace(/^0x/, ""); const o = new Uint8Array(c.length / 2);
-  for (let i = 0; i < o.length; i++) o[i] = parseInt(c.slice(i * 2, i * 2 + 2), 16); return o;
-}
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders });
@@ -74,8 +44,13 @@ export async function POST(req: NextRequest) {
 
   try {
     const rawBody = await req.json();
-    const auth = verifyAuth(req, rawBody);
-    if (!auth.valid) return NextResponse.json({ success: false, error: auth.error ?? "Unauthorized" }, { status: 401, headers: corsHeaders });
+    const hdrs: Record<string, string | undefined> = {
+      "x-z0tz-pubx": req.headers.get("x-z0tz-pubx") ?? undefined,
+      "x-z0tz-puby": req.headers.get("x-z0tz-puby") ?? undefined,
+      "x-z0tz-sig": req.headers.get("x-z0tz-sig") ?? undefined,
+    };
+    const auth = verifyRelayerAuth(hdrs, rawBody, false);
+    if (!auth.authenticated) return NextResponse.json({ success: false, error: auth.error ?? "Unauthorized" }, { status: 401, headers: corsHeaders });
     const { stealthAddress, chainId, gasNeeded, ethNeeded } = rawBody;
     if (!stealthAddress || !chainId) {
       return NextResponse.json({ success: false, error: "Missing stealthAddress or chainId" }, { status: 400, headers: corsHeaders });

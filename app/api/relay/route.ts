@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { relayUserOp, loadConfigFromEnv, type UserOperation } from "@/lib/relayer/relayer";
+import { verifyRelayerAuth } from "@/lib/relayer/auth";
 
 // Rate limiting
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -20,7 +21,7 @@ function checkRateLimit(ip: string): boolean {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-Z0tz-PubX, X-Z0tz-PubY, X-Z0tz-Sig",
 };
 
 export async function OPTIONS() {
@@ -34,10 +35,22 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { userOp, chainId } = (await req.json()) as { userOp: UserOperation; chainId: number };
+    const body = await req.json();
+    const { userOp, chainId } = body as { userOp: UserOperation; chainId: number };
 
     if (!userOp || !chainId) {
       return NextResponse.json({ success: false, error: "Missing userOp or chainId" }, { status: 400, headers: corsHeaders });
+    }
+
+    // P-256 auth — optional for backward compat, required if headers present.
+    const hdrs: Record<string, string | undefined> = {
+      "x-z0tz-pubx": req.headers.get("x-z0tz-pubx") ?? undefined,
+      "x-z0tz-puby": req.headers.get("x-z0tz-puby") ?? undefined,
+      "x-z0tz-sig": req.headers.get("x-z0tz-sig") ?? undefined,
+    };
+    const auth = verifyRelayerAuth(hdrs, body, false);
+    if (!auth.authenticated) {
+      return NextResponse.json({ success: false, error: auth.error ?? "Unauthorized" }, { status: 401, headers: corsHeaders });
     }
 
     const config = loadConfigFromEnv();
