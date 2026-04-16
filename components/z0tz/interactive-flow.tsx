@@ -211,9 +211,9 @@ export function InteractiveFlow() {
             const a = nodeById[e.from]
             const b = nodeById[e.to]
             if (!a || !b) return null
-            // Horizontal line with small indent from node edges so arrows don't overlap
-            const x1 = a.x + 60
-            const x2 = b.x - 60
+            // Rect half-width is 70; stop arrow 4px short of the node edge
+            const x1 = a.x + 74
+            const x2 = b.x - 74
             const yMid = (a.y + b.y) / 2
             const midX = (x1 + x2) / 2
             return (
@@ -286,10 +286,10 @@ export function InteractiveFlow() {
                   />
                 ) : (
                   <rect
-                    x={n.x - 58}
-                    y={n.y - 24}
-                    width={116}
-                    height={48}
+                    x={n.x - 70}
+                    y={n.y - 26}
+                    width={140}
+                    height={52}
                     rx={8}
                     fill={fill}
                     stroke={stroke}
@@ -299,12 +299,14 @@ export function InteractiveFlow() {
                 )}
                 <text
                   x={n.x}
-                  y={n.y - 2}
+                  y={n.y - 3}
                   textAnchor="middle"
                   className="font-mono"
                   fill="#F5F5F5"
-                  fontSize={13}
+                  fontSize={12}
                   fontWeight={600}
+                  lengthAdjust="spacingAndGlyphs"
+                  textLength={Math.min(128, (n.label?.length ?? 0) * 7.5)}
                 >
                   {n.label}
                 </text>
@@ -316,6 +318,8 @@ export function InteractiveFlow() {
                     className="font-mono"
                     fill="#8A8A8A"
                     fontSize={10}
+                    lengthAdjust="spacingAndGlyphs"
+                    textLength={Math.min(128, (n.sub?.length ?? 0) * 6)}
                   >
                     {n.sub}
                   </text>
