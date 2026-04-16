@@ -2,6 +2,7 @@
 
 import Image from "next/image"
 import { useScrollReveal } from "@/hooks/use-scroll-reveal"
+import { InteractiveFlow } from "./interactive-flow"
 
 interface Diagram {
   id: string
@@ -16,17 +17,6 @@ interface Diagram {
 }
 
 const diagrams: Diagram[] = [
-  {
-    id: "flow",
-    eyebrow: "How it works",
-    title: "Cash in, hold, cash out",
-    lead:
-      "Funds enter through a disposable stealth address, get swept into an encrypted ledger under your passkey, and leave the same way. Same-chain or cross-chain, the path is symmetrical and balances stay encrypted between hops.",
-    src: "/diagrams/cash-flow.svg",
-    alt: "Diagram showing plaintext USDC entering a stealth EOA and being swept into an encrypted ledger on the same chain or via CCTP to a remote chain; spending mirrors the path in reverse to any target EOA.",
-    w: 960,
-    h: 520,
-  },
   {
     id: "stealths",
     eyebrow: "Address families",
@@ -74,6 +64,28 @@ export function DiagramsSection() {
         </div>
 
         <div className="flex flex-col gap-20">
+          {/* Interactive flow — 5 tabbed scenarios with animated path */}
+          <article className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-10">
+            <header className="lg:col-span-4">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--bright-red)]">
+                How it works
+              </div>
+              <h3 className="font-mono text-2xl font-bold tracking-tight md:text-3xl">
+                Cash in, hold, cash out
+              </h3>
+              <p className="mt-3 text-sm text-muted-foreground md:text-base">
+                Five flows, one mental model: money arrives through a disposable stealth, gets encrypted under your passkey, and leaves the same way. Click a scenario to trace the path.
+              </p>
+            </header>
+
+            <figure className="lg:col-span-8">
+              <InteractiveFlow />
+              <figcaption className="sr-only">
+                Interactive flow diagram with five scenarios: same-chain cash in, cross-chain cash in, same-chain cash out, cross-chain cash out, and self-bridge.
+              </figcaption>
+            </figure>
+          </article>
+
           {diagrams.map((d) => (
             <article key={d.id} className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-10">
               <header className="lg:col-span-4">
