@@ -52,10 +52,14 @@ const diagrams: Diagram[] = [
 ]
 
 export function DiagramsSection() {
-  const ref = useScrollReveal()
+  const { ref, revealed } = useScrollReveal()
 
   return (
-    <section ref={ref} id="diagrams" className="border-t border-border">
+    <section
+      ref={ref}
+      id="diagrams"
+      className={`border-t border-border transition-opacity duration-700 ${revealed ? "opacity-100" : "opacity-0"}`}
+    >
       <div className="mx-auto max-w-6xl px-6 py-24 md:py-32">
         <div className="mb-16 max-w-2xl">
           <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--bright-red)]">
