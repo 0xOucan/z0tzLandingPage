@@ -158,12 +158,12 @@ export function InteractiveFlow() {
   const nodeById = Object.fromEntries(scenario.nodes.map(n => [n.id, n]))
 
   return (
-    <div className="rounded-none border border-border bg-[var(--surface)] p-4 md:p-6">
-      {/* Scenario tabs */}
+    <div>
+      {/* Scenario tabs — pill row, centered */}
       <div
         role="tablist"
         aria-label="Flow scenario"
-        className="mb-5 flex flex-wrap gap-2"
+        className="mb-8 flex flex-wrap justify-center gap-2"
       >
         {SCENARIOS.map((s, i) => {
           const active = i === idx
@@ -326,10 +326,9 @@ export function InteractiveFlow() {
         </svg>
       </div>
 
-      {/* Scenario blurb under the diagram */}
-      <div className="mt-5">
-        <h3 className="font-mono text-lg font-bold tracking-tight">{scenario.title}</h3>
-        <p className="mt-2 text-sm text-muted-foreground md:text-base">{scenario.blurb}</p>
+      {/* Scenario blurb under the diagram — centered, breathes with the page */}
+      <div className="mx-auto mt-6 max-w-2xl text-center">
+        <p className="text-sm text-muted-foreground md:text-base">{scenario.blurb}</p>
       </div>
     </div>
   )
