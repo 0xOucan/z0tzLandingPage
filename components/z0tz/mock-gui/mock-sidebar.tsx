@@ -5,9 +5,25 @@ import { BatLogo } from "@/components/z0tz/bat-logo"
 interface MockSidebarProps {
   activePage: string
   onNavigate: (page: string) => void
+  onLock?: () => void
 }
 
-export function MockSidebar({ activePage, onNavigate }: MockSidebarProps) {
+// Mirrors /home/oucan/EVVM/FHE/Z0tz/gui/src/renderer/components/Sidebar.tsx
+// MAIN_NAV + SECONDARY_NAV so the mock matches the shipped V6.5 GUI exactly.
+const MAIN_NAV: Array<[string, string]> = [
+  ["dashboard",         "Dashboard"],
+  ["cashin",            "Cash In"],
+  ["cashout",           "Cash Out"],
+  ["bridge",            "Bridge"],
+  ["permanentStealths", "Permanent Stealths"],
+]
+
+const SECONDARY_NAV: Array<[string, string]> = [
+  ["history",  "History"],
+  ["settings", "Settings"],
+]
+
+export function MockSidebar({ activePage, onNavigate, onLock }: MockSidebarProps) {
   return (
     <aside className="mock-sidebar">
       <a href="/" className="mock-sidebar-back">
@@ -20,65 +36,45 @@ export function MockSidebar({ activePage, onNavigate }: MockSidebarProps) {
       </div>
 
       <nav className="mock-nav">
-        <button
-          className={`mock-nav-item${activePage === "dashboard" ? " active" : ""}`}
-          onClick={() => onNavigate("dashboard")}
-        >
-          Dashboard
-        </button>
-        <button
-          className={`mock-nav-item${activePage === "send" ? " active" : ""}`}
-          onClick={() => onNavigate("send")}
-        >
-          Send
-        </button>
-        <button
-          className={`mock-nav-item${activePage === "shield" ? " active" : ""}`}
-          onClick={() => onNavigate("shield")}
-        >
-          Shield
-        </button>
-        <button
-          className={`mock-nav-item${activePage === "bridge" ? " active" : ""}`}
-          onClick={() => onNavigate("bridge")}
-        >
-          Bridge
-        </button>
+        {MAIN_NAV.map(([id, label]) => (
+          <button
+            key={id}
+            className={`mock-nav-item${activePage === id ? " active" : ""}`}
+            onClick={() => onNavigate(id)}
+          >
+            {label}
+          </button>
+        ))}
 
         <div className="mock-sidebar-separator" />
 
-        <button
-          className={`mock-nav-item${activePage === "cashin" ? " active" : ""}`}
-          onClick={() => onNavigate("cashin")}
-        >
-          Cash In
-        </button>
-        <button
-          className={`mock-nav-item${activePage === "cashout" ? " active" : ""}`}
-          onClick={() => onNavigate("cashout")}
-        >
-          Cash Out
-        </button>
-        <button
-          className={`mock-nav-item${activePage === "history" ? " active" : ""}`}
-          onClick={() => onNavigate("history")}
-        >
-          History
-        </button>
-        <button
-          className={`mock-nav-item${activePage === "settings" ? " active" : ""}`}
-          onClick={() => onNavigate("settings")}
-        >
-          Settings
-        </button>
+        {SECONDARY_NAV.map(([id, label]) => (
+          <button
+            key={id}
+            className={`mock-nav-item${activePage === id ? " active" : ""}`}
+            onClick={() => onNavigate(id)}
+          >
+            {label}
+          </button>
+        ))}
       </nav>
 
       <div className="mock-sidebar-footer">
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
           <span className="mock-dot mock-dot-ok" />
-          <span>Base Sepolia</span>
+          <span>3 chains deployed</span>
         </div>
-        <div style={{ color: "#8A8A8A" }}>0x7A0F...3c2B</div>
+        <div style={{ color: "#8A8A8A", fontSize: 10 }}>0x7A0F…3c2B</div>
+        {onLock && (
+          <button
+            onClick={onLock}
+            className="mock-btn mock-btn-sm"
+            style={{ marginTop: 10, width: "100%" }}
+            title="Simulated lock — reloads the preview onboarding screen"
+          >
+            🔒 Lock
+          </button>
+        )}
       </div>
     </aside>
   )

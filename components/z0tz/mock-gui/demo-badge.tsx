@@ -1,8 +1,8 @@
 export function DemoBadge() {
   return (
-    <div className="mock-demo-badge">
+    <div className="mock-demo-badge" title="This is a simulated preview — no real keys, no network, no disk writes">
       <span className="mock-dot mock-dot-red" />
-      PREVIEW — Not connected to any network
+      SIMULATED PREVIEW · not a real wallet
     </div>
   )
 }

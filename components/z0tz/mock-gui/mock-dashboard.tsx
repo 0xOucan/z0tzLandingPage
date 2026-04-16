@@ -6,113 +6,93 @@ interface MockDashboardProps {
   onNavigate: (page: string) => void
 }
 
+// Mirrors the V6.5 Dashboard: one total encrypted ledger balance card up
+// top, per-chain cards below with deploy status and ledger balance.
 export function MockDashboard({ onNavigate }: MockDashboardProps) {
-  const [revealA, setRevealA] = useState(false)
-  const [loadingA, setLoadingA] = useState(false)
-  const [revealB, setRevealB] = useState(false)
-  const [loadingB, setLoadingB] = useState(false)
-
-  const handleRevealA = () => {
-    setLoadingA(true)
-    setTimeout(() => {
-      setLoadingA(false)
-      setRevealA(true)
-    }, 1500)
-  }
-
-  const handleRevealB = () => {
-    setLoadingB(true)
-    setTimeout(() => {
-      setLoadingB(false)
-      setRevealB(true)
-    }, 1500)
-  }
+  const [scanned, setScanned] = useState(false)
+  const [scanning, setScanning] = useState(false)
 
   const chains = [
-    { name: "Base Sepolia", balance: "12.5 eZ0TZUSD" },
-    { name: "Eth Sepolia", balance: "8.2 eZ0TZUSD" },
-    { name: "Arb Sepolia", balance: "5.0 eZ0TZUSD" },
+    { network: "base-sepolia", label: "Base Sepolia", addr: "0x7A0F…3c2B", deployed: true,  balance: "12.500000" },
+    { network: "eth-sepolia",  label: "Eth Sepolia",  addr: "0xffdB…12c4", deployed: true,  balance: "8.200000"  },
+    { network: "arb-sepolia",  label: "Arb Sepolia",  addr: "0x90f2…ba50", deployed: true,  balance: "5.100000"  },
   ]
 
-  const actions = [
-    { label: "Deploy", nav: null },
-    { label: "Faucet", nav: null },
-    { label: "Shield", nav: null },
-    { label: "Unshield", nav: null },
-    { label: "Send", nav: "send" },
-    { label: "Bridge", nav: "bridge" },
-    { label: "Cash Out", nav: null },
-    { label: "History", nav: null },
-  ]
+  const total = (12.5 + 8.2 + 5.1).toFixed(6)
+
+  const handleScan = () => {
+    setScanning(true)
+    setTimeout(() => { setScanning(false); setScanned(true) }, 1500)
+  }
 
   return (
     <div>
-      <h1 className="mock-page-title">Dashboard</h1>
-      <p className="mock-page-subtitle">Overview of your private wallet</p>
+      <div className="mock-dashboard-head">
+        <div>
+          <h1 className="mock-page-title">Dashboard</h1>
+          <p className="mock-page-subtitle">
+            Your passkey-owned smart accounts and encrypted-ledger balances across chains.
+          </p>
+        </div>
+        <button className="mock-btn mock-btn-primary" onClick={handleScan} disabled={scanning}>
+          {scanning ? "Scanning…" : scanned ? "Refresh balances" : "Scan & decrypt"}
+        </button>
+      </div>
 
-      <div className="mock-stagger">
-        <div className="mock-grid-2">
-          <div className="mock-card">
-            <div className="mock-card-title">MockUSDC (eZ0TZUSD)</div>
-            <div className="mock-balance mock-balance-encrypted" style={{ marginBottom: 12 }}>
-              {loadingA ? (
-                <span className="mock-spinner" />
-              ) : revealA ? (
-                "42.500000"
-              ) : (
-                "\u2022\u2022\u2022\u2022\u2022"
-              )}
-            </div>
-            {!revealA && (
-              <button className="mock-btn mock-btn-sm" onClick={handleRevealA} disabled={loadingA}>
-                Reveal
-              </button>
-            )}
+      {/* Global total */}
+      <div className="mock-card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 11, color: "#8A8A8A", textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Total encrypted ledger balance
           </div>
-          <div className="mock-card">
-            <div className="mock-card-title">USDC</div>
-            <div className="mock-balance mock-balance-encrypted" style={{ marginBottom: 12 }}>
-              {loadingB ? (
-                <span className="mock-spinner" />
-              ) : revealB ? (
-                "127.830000"
-              ) : (
-                "\u2022\u2022\u2022\u2022\u2022"
-              )}
-            </div>
-            {!revealB && (
-              <button className="mock-btn mock-btn-sm" onClick={handleRevealB} disabled={loadingB}>
-                Reveal
-              </button>
-            )}
+          <div className="mock-balance-total">
+            {scanning ? <span className="mock-spinner" /> : scanned ? `${total} USDC` : "•••••• USDC"}
           </div>
         </div>
+        <div style={{ fontSize: 11, color: "#8A8A8A", textAlign: "right" }}>
+          <div>Wallet</div>
+          <div style={{ fontFamily: "monospace", marginTop: 2 }}>0x7A0F…3c2B</div>
+          <button className="mock-btn mock-btn-sm" style={{ marginTop: 6 }}>QR</button>
+        </div>
+      </div>
 
-        <div className="mock-grid-3">
-          {chains.map((c) => (
-            <div className="mock-card" key={c.name}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <span className="mock-dot mock-dot-ok" />
-                <strong>{c.name}</strong>
+      {/* Per-chain cards */}
+      <div style={{ display: "grid", gap: 12 }}>
+        {chains.map((c) => (
+          <div className="mock-card" key={c.network}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>{c.label}</div>
+                <div style={{ fontSize: 11, color: "#8A8A8A", marginTop: 2 }}>
+                  account {c.addr} ·{" "}
+                  <span style={{ color: c.deployed ? "#22c55e" : "#E63946" }}>
+                    {c.deployed ? "deployed" : "not deployed"}
+                  </span>
+                </div>
               </div>
-              <div style={{ fontSize: 11, color: "#8A8A8A", marginBottom: 4 }}>0x7A0F...3c2B</div>
-              <div style={{ fontSize: 11, color: "#8A8A8A", marginBottom: 4 }}>Deployed</div>
-              <div style={{ fontSize: 12 }}>{c.balance}</div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11, color: "#8A8A8A" }}>Ledger balance</div>
+                <div style={{ fontSize: 18, fontWeight: 600, fontFamily: "monospace" }}>
+                  {scanned ? `${c.balance} USDC` : "—"}
+                </div>
+              </div>
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
+      </div>
 
-        <div className="mock-grid-actions">
-          {actions.map((a) => (
-            <div
-              className="mock-action-card"
-              key={a.label}
-              onClick={a.nav ? () => onNavigate(a.nav!) : undefined}
-            >
-              {a.label}
-            </div>
-          ))}
-        </div>
+      {/* Inline shortcuts — match the V6.5 page list */}
+      <div className="mock-grid-actions" style={{ marginTop: 24 }}>
+        {[
+          ["cashin", "Cash In"],
+          ["cashout", "Cash Out"],
+          ["bridge", "Bridge"],
+          ["permanentStealths", "Permanent Stealths"],
+        ].map(([nav, label]) => (
+          <div className="mock-action-card" key={nav} onClick={() => onNavigate(nav)}>
+            {label}
+          </div>
+        ))}
       </div>
     </div>
   )
