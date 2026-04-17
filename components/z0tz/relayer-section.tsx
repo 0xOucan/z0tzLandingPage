@@ -3,10 +3,12 @@
 import { useScrollReveal } from "@/hooks/use-scroll-reveal"
 
 const endpoints = [
-  { method: "POST", path: "/relay", description: "Submit UserOps" },
-  { method: "POST", path: "/bridge", description: "Cross-chain relay" },
-  { method: "GET", path: "/health", description: "Status" },
-  { method: "GET", path: "/config", description: "Contract addresses" },
+  { method: "POST", path: "/relay",         description: "Submit ERC-4337 UserOps (deploy, V6 tx)" },
+  { method: "POST", path: "/fund-stealth",  description: "Fund a stealth EOA with ETH for sweep / CCTP gas" },
+  { method: "POST", path: "/ledger-sweep",  description: "V6.5 privateSweepToLedger (cash-in → ledger credit)" },
+  { method: "POST", path: "/ledger-op",     description: "V6.5 Ledger.spend (cashout, bridge, internal transfer)" },
+  { method: "GET",  path: "/config",        description: "Contract addresses + useLedger flag + V6.5 ledger addrs" },
+  { method: "GET",  path: "/health",        description: "Status" },
 ]
 
 export function RelayerSection() {
@@ -22,10 +24,10 @@ export function RelayerSection() {
 
         <div className="max-w-2xl mx-auto">
           <p className="text-muted-foreground mb-2 text-center">
-            The relayer submits UserOps to the blockchain.
+            The relayer submits UserOps, funds stealth gas, and routes V6.5 ledger operations.
           </p>
           <p className="text-muted-foreground mb-12 text-center">
-            Users never touch ETH. The paymaster pays gas.
+            Users never touch ETH. The paymaster absorbs gas and recovers a 1% fee in the transacted token.
           </p>
 
           <div className="bg-secondary border border-foreground/30 p-6 mb-8">
@@ -47,29 +49,20 @@ export function RelayerSection() {
             ))}
           </div>
 
-          <p className="text-muted-foreground mb-4 text-center">
-            Self-hosted. Open source. Zero dependencies.
+          <p className="text-muted-foreground mb-4 text-center text-sm">
+            P-256 passkey authentication on every endpoint. Clients sign the canonical request body
+            with their wallet passkey and include{" "}
+            <code className="text-foreground">X-Z0tz-PubX</code>,{" "}
+            <code className="text-foreground">X-Z0tz-PubY</code>, and{" "}
+            <code className="text-foreground">X-Z0tz-Sig</code> headers. The relayer verifies against
+            the smart-account owner before processing. Backward-compatible — requests without auth
+            headers fall back to IP-based rate limiting.
           </p>
 
           <p className="text-muted-foreground mb-8 text-center text-sm">
-            V6 adds P-256 passkey authentication on every request — clients sign the body with
-            their wallet passkey and send <code className="text-foreground">X-Z0tz-PubX</code>,{" "}
-            <code className="text-foreground">X-Z0tz-PubY</code>, and{" "}
-            <code className="text-foreground">X-Z0tz-Sig</code> headers. The relayer verifies the
-            signature against the smart-account owner before submitting any UserOp, so a stolen
-            relayer URL cannot be replayed by a third party.
+            Self-hosted via <code className="text-foreground">npx tsx server.ts</code> for local dev.
+            Deployed as Vercel API routes for production. Same auth, same routes.
           </p>
-
-          <div className="text-center">
-            <a
-              href="https://github.com/0xOucan/Z0tzRelayer"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="border border-foreground bg-transparent text-foreground px-8 py-3 text-sm uppercase tracking-widest font-medium transition-all duration-200 hover:bg-foreground hover:text-background inline-block"
-            >
-              GitHub: Z0tzRelayer
-            </a>
-          </div>
         </div>
       </div>
       </div>
