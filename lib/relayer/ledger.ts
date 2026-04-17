@@ -74,7 +74,7 @@ const LEDGER_ABI = [
             type: "tuple",
             components: [
               { name: "ctHash", type: "uint256" },
-              { name: "securityZone", type: "int32" },
+              { name: "securityZone", type: "uint8" },
               { name: "utype", type: "uint8" },
               { name: "signature", type: "bytes" },
             ],
