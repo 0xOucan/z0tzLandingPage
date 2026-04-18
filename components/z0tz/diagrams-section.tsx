@@ -17,22 +17,11 @@ interface DiagramBlock {
 
 const blocks: DiagramBlock[] = [
   {
-    id: "stealths",
-    eyebrow: "Address families",
-    title: "Three kinds of addresses,\none passkey",
-    lead:
-      "Every address derives from a single WebAuthn passkey. Three families serve three purposes — disposable cash-in inboxes, permanent smart accounts for DeFi, permanent EOAs you can export into MetaMask.",
-    src: "/diagrams/stealth-types.svg",
-    alt: "Diagram branching from a central P-256 passkey into three address families.",
-    w: 960,
-    h: 460,
-  },
-  {
     id: "architecture",
     eyebrow: "Architecture",
     title: "What runs where",
     lead:
-      "Passkey material lives locally. A relayer submits UserOps and funds stealth gas. Three on-chain contracts — sweeper, vault, encrypted ledger — move money in and out of the encrypted zone. CoFHE handles threshold decryption off-chain.",
+      "Passkey stays on your device. Three contracts — sweeper, vault, ledger — move money in and out. CoFHE handles threshold decryption off-chain.",
     src: "/diagrams/architecture.svg",
     alt: "System architecture diagram.",
     w: 960,
@@ -97,32 +86,20 @@ export function DiagramsSection() {
       <RevealBlock>
         <div className="mx-auto max-w-2xl px-6 pt-24 text-center md:pt-32">
           <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--bright-red)]">
-            Visual tour
+            What you can do, end to end
           </div>
           <h2 className="font-mono text-3xl font-bold tracking-tight md:text-5xl">
-            See Z0tz end to end
+            Five flows. One passkey.
           </h2>
           <p className="mt-4 text-base text-muted-foreground md:text-lg">
-            Three answers to the three questions people ask first: how does money flow, what are all these addresses, and what actually runs on my machine.
+            Pick a scenario below to trace the path. Each tab is one thing you can do with Z0tz.
           </p>
         </div>
       </RevealBlock>
 
-      {/* Flow — interactive, but presented inline. The component was already
-          rebuilt to feel light; we just drop the outer card treatment. */}
-      <RevealBlock className="py-24 md:py-32">
-        <div className="mx-auto mb-10 max-w-2xl px-6 text-center md:mb-14">
-          <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--bright-red)]">
-            How it works
-          </div>
-          <h3 className="font-mono text-2xl font-bold leading-tight tracking-tight md:text-4xl">
-            Cash in, hold, cash out
-          </h3>
-          <p className="mt-4 text-sm text-muted-foreground md:text-base">
-            Five flows, one mental model. Pick a scenario to trace the path.
-          </p>
-        </div>
-        <div className="mx-auto w-full max-w-[1280px] px-4 md:px-6">
+      {/* Flow — interactive, full-bleed-ish so laptop screens have room. */}
+      <RevealBlock className="py-10 md:py-14">
+        <div className="mx-auto w-full max-w-[1480px] px-4 md:px-8">
           <InteractiveFlow />
         </div>
       </RevealBlock>

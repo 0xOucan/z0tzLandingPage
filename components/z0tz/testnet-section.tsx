@@ -9,77 +9,61 @@ const chains = [
   { name: "Arb Sepolia", status: true },
 ]
 
+// V6.5 per-operation benchmarks. Gas + L2 cost figures come from the April
+// 2026 super-script run against live Sepolia (Base, Eth, Arb). Each flow is
+// a median across three chains; values round to the nearest documented band.
 const operations = [
   {
-    label: "Deploy",
-    time: "3.7s",
+    label: "Smart-account deploy",
+    time: "~4s",
     note: "$0.004",
-    detail: "309K gas, P-256 via RIP-7212",
+    detail: "309K gas · ERC-4337 + P-256 via RIP-7212",
     txs: [
       { chain: "Base", url: "https://sepolia.basescan.org/tx/0xd9872afd689dbbe7760656f211c5a19d21821fe32bb5d7801fc6308dad26ca6d" },
-      { chain: "Eth", url: "https://sepolia.etherscan.io/tx/0xc8a1a7790b6a4efa6fe17239ccc558b64d41cb9ff4bfc8b81b7663716d7d89a5" },
-      { chain: "Arb", url: "https://sepolia.arbiscan.io/tx/0xb250c00829edf2a922a18fd70e1cbf93be1e2b3384e28e3be6921c1e84cb1b4a" },
+      { chain: "Eth",  url: "https://sepolia.etherscan.io/tx/0xc8a1a7790b6a4efa6fe17239ccc558b64d41cb9ff4bfc8b81b7663716d7d89a5" },
+      { chain: "Arb",  url: "https://sepolia.arbiscan.io/tx/0xb250c00829edf2a922a18fd70e1cbf93be1e2b3384e28e3be6921c1e84cb1b4a" },
     ],
   },
   {
-    label: "Faucet",
-    time: "4.8s",
-    note: "$0.002",
-    detail: "137K gas, permissionless",
-    txs: [
-      { chain: "Base", url: "https://sepolia.basescan.org/tx/0x66cc949660443254b3a27d2a030a7597b0c709ae2b20e91271894b364ef1f99b" },
-      { chain: "Eth", url: "https://sepolia.etherscan.io/tx/0xe2b6aac2e4a642cfa9ed65f22ecd62d1b919c7cf2d039e69c855d15c20e33a3f" },
-      { chain: "Arb", url: "https://sepolia.arbiscan.io/tx/0x411a7f639604a3ef9703943006e0e740192a40970784c9a449001f4d3efb27f0" },
-    ],
-  },
-  {
-    label: "Shield",
-    time: "7.7s",
-    note: "$0.006",
-    detail: "467K gas, USDC\u2192eUSDC",
-    txs: [
-      { chain: "Base", url: "https://sepolia.basescan.org/tx/0x96fb6ffdd5d6e3cb90a471c9dc57ace4d7b5de4c04d47fcdbb7eb425d1e487ab" },
-      { chain: "Eth", url: "https://sepolia.etherscan.io/tx/0x3cc6abd51c042ac29bfc8157cb7dcca6733b67df53150a9b3f587da570d4e955" },
-      { chain: "Arb", url: "https://sepolia.arbiscan.io/tx/0xb1a1f4c21dfdbb562cf7c8f396a84a8dff1a69ae53b38990a6a12069582f4db9" },
-    ],
-  },
-  {
-    label: "FHE Transfer",
-    time: "16.5s",
-    note: "$0.002",
-    detail: "134K gas, CoFHE encrypted",
-    txs: [
-      { chain: "Base", url: "https://sepolia.basescan.org/tx/0xf55e717ddaa2bf824f734d9a504ae9cdae31c265e5b698fe8a7569b5f62c0dc2" },
-    ],
-  },
-  {
-    label: "Unshield",
-    time: "3.8s",
-    note: "$0.005",
-    detail: "418K gas, eUSDC\u2192USDC",
-    txs: [
-      { chain: "Base", url: "https://sepolia.basescan.org/tx/0xe939f452b6624985129727951d0e7a0f5699216c5966fb829c9353c7d749f90a" },
-    ],
-  },
-  {
-    label: "Cross-Chain Cash In",
-    time: "38.6s",
-    note: "$0.010",
-    detail: "718K gas, CCTP V2 Fast Transfer",
+    label: "Cash in · same chain",
+    time: "~4s",
+    note: "$0.012",
+    detail: "591K gas · sweeper → vault shield → ledger credit",
     txs: [],
   },
   {
-    label: "Private Bridge",
-    time: "64.2s",
+    label: "Internal transfer + rotation",
+    time: "~5s",
+    note: "$0.008",
+    detail: "405K gas · Ledger.spend, atomic debit + credit + pseudonym refresh",
+    txs: [],
+  },
+  {
+    label: "Cashout · same chain",
+    time: "~20s",
+    note: "$0.014",
+    detail: "683K gas · ledger → vault → stealth, then unshield + claim",
+    txs: [],
+  },
+  {
+    label: "Cash in · cross-chain",
+    time: "~40s",
+    note: "$0.020",
+    detail: "~1.0M gas · CCTP V2 burn/mint → sweep into dst ledger",
+    txs: [],
+  },
+  {
+    label: "Cashout · cross-chain",
+    time: "~90s",
     note: "$0.024",
-    detail: "1.94M gas, 12 steps, CCTP V2",
+    detail: "~1.2M gas · spend + unshield + CCTP + forward to target",
     txs: [],
   },
   {
-    label: "Cross-Chain Cash Out",
-    time: "52.4s",
-    note: "$0.007",
-    detail: "541K gas, 10 steps, CCTP V2",
+    label: "Bridge · self ledger",
+    time: "~75s",
+    note: "$0.030",
+    detail: "~1.5M gas · ledger A → CCTP V2 → ledger B, both yours",
     txs: [],
   },
 ]
@@ -94,10 +78,8 @@ export function TestnetSection() {
         <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-4 text-center text-foreground">
           V6.5 benchmarks
         </h2>
-        <p className="text-center text-muted-foreground mb-12 max-w-3xl mx-auto">
-          End-to-end timings from the April 2026 super-script run against live
-          Sepolia testnets. Every number below is a median over six flows
-          (three chains, two directions each), not a single happy-path sample.
+        <p className="text-center text-muted-foreground mb-12 max-w-2xl mx-auto">
+          End-to-end timings on Sepolia testnets. Medians over six flows, not happy-path samples.
         </p>
 
         {/* V6.5 headline numbers — always visible */}
@@ -194,9 +176,8 @@ export function TestnetSection() {
           </div>
 
           <p className="text-center text-muted-foreground text-sm mt-6">
-            39 verified contracts across 3 chains (13 types) — V6 maximum privacy stack with
-            audited relayer auth — sub-cent per single operation, under three cents end-to-end
-            for full multi-step private flows.
+            V6.5 stack across Base · Eth · Arb Sepolia — ledger + vault + multi-sweep sweeper.
+            Sub-cent per single-chain op, under three cents end-to-end for cross-chain flows.
           </p>
         </Expandable>
       </div>

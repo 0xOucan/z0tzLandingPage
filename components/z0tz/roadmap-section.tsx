@@ -18,59 +18,59 @@ interface Milestone {
  * audit notes, does not quote them.
  */
 const milestones: Milestone[] = [
-  // ── Shipped — compressed to the named V6.5 primitives ────────────────
+  // ── Shipped ──────────────────────────────────────────────────────────
   {
     title: "FHE-encrypted ledger + vault",
-    desc: "Pseudonymous ledger IDs map to ciphertext handles in a bound vault. Balances live on chain as euint64 handles, never plaintext. Viewer permits decrypt off chain under the passkey.",
+    desc: "Pseudonymous ledger IDs, ciphertext handles, viewer permits. Balances never plaintext on chain.",
     status: "done",
   },
   {
     title: "Three stealth-address families",
-    desc: "Cash-in inboxes (HKDF), permanent smart accounts (CREATE2 + paymaster), permanent EOAs (HKDF, privkey extractable). All derive from one passkey; each family covers a different use-case without cross-linkage.",
+    desc: "Cash-in (HKDF), permanent smart (CREATE2), permanent EOA (extractable). All from one passkey.",
     status: "done",
   },
   {
     title: "Multi-sweep V6.5.2",
-    desc: "sweptV2 bool → sweepNonceV2 uint. Recurring-deposit flows (salary, invoicing, subscriptions) land at a stable cash-in address with per-sweep replay protection. 622–668K gas first sweep, ~467K every sweep after.",
+    desc: "Recurring deposits at a stable address with per-sweep replay protection. ~467K gas after the first sweep.",
     status: "done",
   },
   {
     title: "CCTP V2 as the permissionless bridge",
-    desc: "Circle CCTP V2 TokenMessenger handles every cross-chain hop. Stealth-pair routing on both ends — the burn depositor and the mint recipient are both one-shot addresses. The bridge is Circle's; the privacy is still yours.",
+    desc: "Stealth pair on both sides. Bridge is Circle's; privacy is yours.",
     status: "done",
   },
   {
     title: "Phase-2 security audit pass",
-    desc: "Parallel ethskills-style reviews of contracts + CLI + GUI (April 2026). 2 Critical, 8 High, 11 Medium findings — all Critical + High fixed before this commit. Relayer auth now strips signatures from the P-256 pre-image correctly.",
+    desc: "Parallel ethskills review of contracts + CLI + GUI. All Critical + High closed before ship.",
     status: "done",
   },
 
-  // ── Next — concrete commitments ──────────────────────────────────────
+  // ── Next ─────────────────────────────────────────────────────────────
   {
-    title: "Composability · DeFi integration",
-    desc: "Wire the permanent smart-account stealth family into lending, DEX, and yield protocols. Deposit from an encrypted ledger, route the approval through a stealth, keep the position pseudonymous — without leaking the rest of the wallet balance.",
+    title: "DeFi composability",
+    desc: "Wire permanent smart stealths into lending, DEX, yield. Position pseudonymous, balance private.",
     status: "next",
   },
   {
-    title: "KYC · AML compliance lane",
-    desc: "An opt-in view key that lets a regulated counterparty (exchange, payroll provider, tax filing) decrypt a bounded subset of the ledger under a time-limited permit. Privacy by default, selective disclosure when the user signs for it.",
+    title: "Selective-disclosure compliance",
+    desc: "Opt-in view key for regulated counterparties. Time-limited, user-signed, bounded scope.",
     status: "next",
   },
   {
-    title: "More permissionless protocols",
-    desc: "CCTP is one rail. Next integrations: LayerZero, Hyperlane, canonical bridges, payment rails. The cash-in / cash-out flow stays the same; the route inside changes. Z0tz becomes a privacy wrapper around any permissionless protocol.",
+    title: "More permissionless rails",
+    desc: "LayerZero, Hyperlane, canonical bridges, payment rails. Same flow, different routes.",
     status: "next",
   },
 
-  // ── Later — direction, not a commitment ──────────────────────────────
+  // ── Later ────────────────────────────────────────────────────────────
   {
     title: "Z0tz SDK for dApp embed",
-    desc: "Publish the passkey + stealth + viewer-permit primitives as an npm SDK so any Fhenix dApp can offer a private wallet with one import, without shipping its own CoFHE integration.",
+    desc: "npm package — passkey + stealth + viewer-permit primitives for any Fhenix dApp.",
     status: "later",
   },
   {
     title: "Mainnet deployment",
-    desc: "Base · Ethereum · Arbitrum production deploys once audits reach zero Critical/High across all layers and the relayer has HA + rate-limit hardening. Testnet stays live for onboarding and demos.",
+    desc: "Base · Eth · Arb, once audits reach zero Critical/High and the relayer is HA.",
     status: "later",
   },
 ]
@@ -86,9 +86,7 @@ export function RoadmapSection() {
             Roadmap
           </h2>
           <p className="mx-auto mb-16 max-w-2xl text-center text-muted-foreground">
-            What ships next, what we&apos;re building now, and where it&apos;s headed.
-            Shipped work is compressed — the full phase log lives in{" "}
-            <code className="text-foreground">docs/internal</code>.
+            What ships next and where it&apos;s headed.
           </p>
 
           <div className="mx-auto max-w-3xl">

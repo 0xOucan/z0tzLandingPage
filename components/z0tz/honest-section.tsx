@@ -79,17 +79,12 @@ export function HonestSection() {
     <section id="honesty" className="py-24 px-6">
       <div ref={ref} className={`section-reveal ${revealed ? "revealed" : ""}`}>
       <div className="max-w-[1200px] mx-auto">
-        <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-4 text-center text-foreground">
-          What&apos;s Public, What&apos;s Private
+        <h2 className="text-3xl md:text-4xl font-bold uppercase tracking-widest mb-12 text-center text-foreground">
+          What&apos;s public, what&apos;s private
         </h2>
-        <p className="text-center text-muted-foreground mb-12 max-w-3xl mx-auto">
-          Z0tz is a privacy stack, not a black box. Being explicit about which operations
-          hide which fields is more useful than marketing absolutes. Everything below
-          is the V6.5 model that ships today.
-        </p>
 
         {/* Honest claims cards */}
-        <div className="grid md:grid-cols-2 gap-8 mb-12">
+        <div className="grid md:grid-cols-2 gap-8 mb-10">
           <div className="border border-foreground/30 p-6 bg-secondary">
             <h3 className="text-lg font-bold uppercase tracking-wider mb-4 text-foreground">
               We don&apos;t claim
@@ -97,24 +92,19 @@ export function HonestSection() {
             <ul className="space-y-3 text-muted-foreground text-sm">
               <li>
                 <span className="text-foreground font-bold">Zero on-chain footprint.</span>{" "}
-                Every UserOp, sweep, and bridge leaves a public row with its calldata, gas,
-                and timestamp. Encryption hides <em>amounts</em>, not <em>existence</em>.
+                Every op leaves a public row. Encryption hides amounts, not existence.
               </li>
               <li>
                 <span className="text-foreground font-bold">Every amount hidden.</span>{" "}
-                The sweeper takes plaintext USDC in; CCTP burns plaintext USDC; only the
-                ledger side is FHE-encrypted. Clear-text wrap/unwrap boundaries are the
-                anonymity-set's price.
+                Sweeper input and CCTP burns are plaintext USDC. Only the ledger side is FHE-encrypted.
               </li>
               <li>
                 <span className="text-foreground font-bold">Metadata anonymity.</span>{" "}
-                IP, timing, and RPC-level metadata are out of scope until Tor/NYM routing
-                lands on the roadmap.
+                IP, timing, RPC metadata are out of scope until Tor/NYM ships.
               </li>
               <li>
-                <span className="text-foreground font-bold">A trustless threshold network.</span>{" "}
-                Decryption guarantees are whatever CoFHE provides. Z0tz inherits that
-                trust model and makes it visible.
+                <span className="text-foreground font-bold">Trustless threshold network.</span>{" "}
+                Z0tz inherits CoFHE&apos;s trust model — doesn&apos;t replace it.
               </li>
             </ul>
           </div>
@@ -126,32 +116,27 @@ export function HonestSection() {
             <ul className="space-y-3 text-muted-foreground text-sm">
               <li>
                 <span className="text-foreground font-bold">Address unlinkability.</span>{" "}
-                An observer scanning for your smart account will find ephemeral stealth
-                EOAs and a sweeper — not a persistent balance history tied to one identity.
+                Scanning finds ephemeral stealths and a shared sweeper — no persistent balance graph.
               </li>
               <li>
                 <span className="text-foreground font-bold">Cross-chain unlinkability.</span>{" "}
-                CCTP uses fresh stealths on both sides. The destination observer can't
-                reconstruct the source chain, the source account, or the intermediate hops.
+                CCTP uses fresh stealths on both sides; no reconstruction possible.
               </li>
               <li>
                 <span className="text-foreground font-bold">Balance confidentiality at rest.</span>{" "}
-                The ledger stores ciphertext handles under pseudonymous IDs. Only a viewer
-                permit can decrypt — off chain, gaslessly, under your passkey.
+                Ciphertext handles under pseudonymous IDs. Only your passkey decrypts.
               </li>
               <li>
                 <span className="text-foreground font-bold">Anonymity set grows with users.</span>{" "}
-                One sweeper per chain aggregates every cash-in. With one user, the set is one.
-                With N users, it&apos;s N. No special mixers; the architecture mixes for free.
+                One sweeper per chain aggregates every cash-in. Mixing is free.
               </li>
             </ul>
           </div>
         </div>
 
-        <p className="text-center text-foreground text-sm font-medium mb-12 max-w-3xl mx-auto">
-          The useful framing: Z0tz gives you <span className="text-[var(--bright-red)]">unlinkability between identities</span> everywhere
-          and <span className="text-[var(--bright-red)]">amount confidentiality at rest</span>. It does not give you plaintext invisibility at
-          the wrap/unwrap boundaries — and being honest about that boundary is what makes the rest trustworthy.
+        <p className="text-center text-foreground text-sm font-medium mb-12 max-w-2xl mx-auto">
+          <span className="text-[var(--bright-red)]">Identity unlinkability</span> +{" "}
+          <span className="text-[var(--bright-red)]">amount confidentiality at rest</span>. Wrap/unwrap boundaries are plaintext — being honest about that is what makes the rest trustworthy.
         </p>
 
         {/* Full per-op table — expandable for the curious */}

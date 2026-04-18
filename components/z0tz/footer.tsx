@@ -5,7 +5,6 @@ import { BatLogo } from "./bat-logo"
 const links = [
   { label: "GitHub", url: "https://github.com/0xOucan/Z0tz" },
   { label: "X/Twitter", url: "https://x.com/0xoucan" },
-  { label: "Telegram", url: "https://t.me/oucan" },
 ]
 
 export function Footer() {
@@ -52,12 +51,12 @@ export function Footer() {
             <p className="mt-2">Apache-2.0</p>
           </div>
 
-          {/* Disclosure — matches Z0tz README */}
-          <div className="mt-4 max-w-2xl border border-foreground/20 px-4 py-3 text-center text-xs text-muted-foreground">
-            <span className="text-foreground font-bold">Testnet proof-of-concept.</span>{" "}
-            Z0tz contracts are functional and audited on testnets (Phase 2: 2 Critical, 8 High — all fixed).
-            They are <span className="text-foreground">not yet deployed to mainnet</span> and should not be
-            used with real funds. Use for evaluation, integration prototyping, and research.
+          {/* Disclosure */}
+          <div className="mt-4 max-w-2xl border border-foreground/20 px-4 py-3 text-center text-xs text-muted-foreground leading-relaxed">
+            <span className="text-foreground font-bold">Testnet proof of concept.</span>{" "}
+            Z0tz runs on Base, Ethereum, and Arbitrum Sepolia — audited on testnet,{" "}
+            <span className="text-foreground">not yet deployed to mainnet</span>.
+            Do not use with real funds. Suitable for evaluation, integration prototyping, and research.
           </div>
         </div>
       </div>

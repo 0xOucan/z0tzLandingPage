@@ -53,7 +53,7 @@ const SCENARIOS: Scenario[] = [
     id: "cashin-same",
     title: "Cash in · same chain",
     blurb:
-      "Money arrives at a stealth EOA — a throwaway address you never reuse for identity. The sweeper atomically wraps it, takes a 1% fee, and credits your encrypted ledger. From then on the balance is FHE-encrypted on chain.",
+      "A payer sends to a disposable stealth. The sweeper wraps it (1% fee) and credits your encrypted ledger. The payer never sees your wallet.",
     nodes: [
       { ...NODES_POOL.ext,     x: 210, y: 180 },
       { ...NODES_POOL.stealth, x: 480, y: 180 },
@@ -69,7 +69,7 @@ const SCENARIOS: Scenario[] = [
     id: "cashin-cross",
     title: "Cash in · cross-chain",
     blurb:
-      "Funds landed on chain A but your ledger lives on chain B. Z0tz burns USDC on A via Circle CCTP, mints to a fresh ephemeral on B, then sweeps straight into your encrypted ledger on B. One click, one signature.",
+      "Payer lands on chain A; your ledger lives on chain B. CCTP burns on A, mints to an ephemeral on B, sweeps into your ledger. Two chains, one signature.",
     nodes: [
       { ...NODES_POOL.ext,     x: 80,  y: 180 },
       { ...NODES_POOL.stealth, x: 280, y: 180, sub: "on chain A" },
@@ -89,7 +89,7 @@ const SCENARIOS: Scenario[] = [
     id: "cashout-same",
     title: "Cash out · same chain",
     blurb:
-      "Your encrypted ledger on chain A debits, an ephemeral stealth receives the plaintext USDC, and it forwards to any EOA you name. The ledger balance drops, privately, and the recipient only ever sees the ephemeral address.",
+      "Ledger debits to an ephemeral; the ephemeral forwards to any address. Recipient sees a one-time sender — no history, no balance.",
     nodes: [
       { ...NODES_POOL.ledgerA, x: 210, y: 180 },
       { ...NODES_POOL.ephA,    x: 480, y: 180 },
@@ -105,7 +105,7 @@ const SCENARIOS: Scenario[] = [
     id: "cashout-cross",
     title: "Cash out · cross-chain",
     blurb:
-      "Ledger on chain A debits to an ephemeral, that ephemeral burns via CCTP, a second ephemeral on chain B receives the mint, and the funds forward to a target on chain B. All this in one orchestrated flow.",
+      "Ledger A → ephemeral A → CCTP burn → ephemeral B → target on B. The bridge connects two random addresses; neither is yours.",
     nodes: [
       { ...NODES_POOL.ledgerA, x: 80,  y: 180 },
       { ...NODES_POOL.ephA,    x: 280, y: 180, label: "Ephemeral A" },
@@ -125,7 +125,7 @@ const SCENARIOS: Scenario[] = [
     id: "bridge-self",
     title: "Bridge · self ledger",
     blurb:
-      "You want your money on chain B instead of chain A. Ledger A debits to an ephemeral, CCTP bridges, the dst ephemeral sweeps into ledger B. Both ends belong to you — nothing leaves your passkey's control.",
+      "Move your own funds between chains. Ledger A → ephemeral A → CCTP → ephemeral B → ledger B. Both ends belong to the same passkey.",
     nodes: [
       { ...NODES_POOL.ledgerA, x: 80,  y: 180 },
       { ...NODES_POOL.ephA,    x: 280, y: 180, label: "Ephemeral A" },
@@ -163,11 +163,12 @@ export function InteractiveFlow() {
 
   return (
     <div>
-      {/* Scenario tabs — pill row, centered */}
+      {/* Scenario tabs — single-line pill row, centered, horizontally scrollable
+          on very narrow screens so labels never wrap to two lines */}
       <div
         role="tablist"
         aria-label="Flow scenario"
-        className="mb-8 flex flex-wrap justify-center gap-2"
+        className="mb-1 flex flex-nowrap justify-center gap-2 overflow-x-auto"
       >
         {SCENARIOS.map((s, i) => {
           const active = i === idx
@@ -177,7 +178,7 @@ export function InteractiveFlow() {
               role="tab"
               aria-selected={active}
               onClick={() => setIdx(i)}
-              className={`font-mono text-[11px] uppercase tracking-[0.15em] px-3 py-2 border transition-colors duration-200 ${
+              className={`font-mono text-sm uppercase tracking-[0.12em] whitespace-nowrap px-4 py-2.5 border transition-colors duration-200 ${
                 active
                   ? "border-[var(--bright-red)] text-[var(--bright-red)] bg-[var(--accent-glow)]"
                   : "border-border text-muted-foreground hover:border-foreground hover:text-foreground"
@@ -334,8 +335,8 @@ export function InteractiveFlow() {
         </svg>
       </div>
 
-      {/* Scenario blurb under the diagram — centered, breathes with the page */}
-      <div className="mx-auto mt-6 max-w-2xl text-center">
+      {/* Blurb under the diagram — hugs the SVG bottom */}
+      <div className="mx-auto -mt-14 max-w-2xl text-center">
         <p className="text-sm text-muted-foreground md:text-base">{scenario.blurb}</p>
       </div>
     </div>
