@@ -19,6 +19,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
+import { makeTransport } from "./rpc";
 
 const SWEEPER_ABI = [
   {
@@ -172,8 +173,8 @@ export async function submitSweepToLedger(
   const sweeper = envOrThrow(`SWEEPER_V65_ADDRESS_${chainId}`) as Address;
   const rpc = envOrThrow(`RPC_URL_${chainId}`);
   const account = privateKeyToAccount(envOrThrow("RELAYER_PRIVATE_KEY") as Hex);
-  const publicClient = createPublicClient({ chain, transport: http(rpc) });
-  const wallet = createWalletClient({ account, chain, transport: http(rpc) });
+  const publicClient = createPublicClient({ chain, transport: makeTransport(rpc) });
+  const wallet = createWalletClient({ account, chain, transport: makeTransport(rpc) });
 
   const sweepArgs = [
     call.stealthAddress, call.underlying,
@@ -202,8 +203,8 @@ export async function submitSpend(
   const ledger = envOrThrow(`LEDGER_ADDRESS_${chainId}`) as Address;
   const rpc = envOrThrow(`RPC_URL_${chainId}`);
   const account = privateKeyToAccount(envOrThrow("RELAYER_PRIVATE_KEY") as Hex);
-  const publicClient = createPublicClient({ chain, transport: http(rpc) });
-  const wallet = createWalletClient({ account, chain, transport: http(rpc) });
+  const publicClient = createPublicClient({ chain, transport: makeTransport(rpc) });
+  const wallet = createWalletClient({ account, chain, transport: makeTransport(rpc) });
   const deserializedOp = deserializeOp(op);
 
   const gas = await estimateOrFallback(

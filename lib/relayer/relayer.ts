@@ -12,6 +12,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia, arbitrumSepolia, baseSepolia } from "viem/chains";
+import { makeTransport, primaryRpc } from "./rpc";
 
 export interface UserOperation {
   sender: Address;
@@ -127,19 +128,15 @@ export function loadConfigFromEnv(): RelayerConfig {
     throw new Error("RELAYER_PRIVATE_KEY not set");
   }
 
-  const DEFAULT_RPCS: Record<number, string> = {
-    11155111: "https://ethereum-sepolia-rpc.publicnode.com",
-    421614: "https://arbitrum-sepolia-rpc.publicnode.com",
-    84532: "https://base-sepolia-rpc.publicnode.com",
-  };
-
   const rpcUrls: Record<number, string> = {};
   const allowedChains = (process.env.ALLOWED_CHAINS ?? "11155111,421614,84532")
     .split(",")
     .map(Number);
 
+  // Pull the primary URL from the ordered pool in ./rpc. Env-based overrides
+  // (RPC_URL_{chainId}) still apply — resolvePool puts them in front.
   for (const chainId of allowedChains) {
-    rpcUrls[chainId] = process.env[`RPC_URL_${chainId}`] ?? DEFAULT_RPCS[chainId] ?? "";
+    rpcUrls[chainId] = primaryRpc(chainId);
   }
 
   const bridgeAddresses: Record<number, string> = {};
@@ -232,11 +229,11 @@ export async function relayUserOp(
 
   const relayerAccount = privateKeyToAccount(config.relayerPrivateKey);
 
-  const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+  const publicClient = createPublicClient({ chain, transport: makeTransport(rpcUrl) });
   const walletClient = createWalletClient({
     account: relayerAccount,
     chain,
-    transport: http(rpcUrl),
+    transport: makeTransport(rpcUrl),
   });
 
   try {
@@ -313,7 +310,7 @@ export async function relayBridge(
   const relayerAccount = privateKeyToAccount(config.relayerPrivateKey);
 
   // Verify lock on source
-  const srcPublicClient = createPublicClient({ chain: srcChain, transport: http(srcRpcUrl) });
+  const srcPublicClient = createPublicClient({ chain: srcChain, transport: makeTransport(srcRpcUrl) });
   try {
     const lockExists = await srcPublicClient.readContract({
       address: srcBridgeAddr as Address,
@@ -327,8 +324,8 @@ export async function relayBridge(
   }
 
   // Mint on destination
-  const destPublicClient = createPublicClient({ chain: destChain, transport: http(destRpcUrl) });
-  const destWalletClient = createWalletClient({ account: relayerAccount, chain: destChain, transport: http(destRpcUrl) });
+  const destPublicClient = createPublicClient({ chain: destChain, transport: makeTransport(destRpcUrl) });
+  const destWalletClient = createWalletClient({ account: relayerAccount, chain: destChain, transport: makeTransport(destRpcUrl) });
 
   try {
     const hash = await destWalletClient.writeContract({
@@ -388,7 +385,7 @@ export async function relayPrivateBridge(
   const relayerAccount = privateKeyToAccount(config.relayerPrivateKey);
 
   // 1. Verify lock on source
-  const srcPublicClient = createPublicClient({ chain: srcChain, transport: http(srcRpcUrl) });
+  const srcPublicClient = createPublicClient({ chain: srcChain, transport: makeTransport(srcRpcUrl) });
   try {
     const lockExists = await srcPublicClient.readContract({
       address: srcBridgeAddr as Address,
@@ -402,8 +399,8 @@ export async function relayPrivateBridge(
   }
 
   // 2. Call mintAndShield on destination PrivateBridge
-  const destPublicClient = createPublicClient({ chain: destChain, transport: http(destRpcUrl) });
-  const destWalletClient = createWalletClient({ account: relayerAccount, chain: destChain, transport: http(destRpcUrl) });
+  const destPublicClient = createPublicClient({ chain: destChain, transport: makeTransport(destRpcUrl) });
+  const destWalletClient = createWalletClient({ account: relayerAccount, chain: destChain, transport: makeTransport(destRpcUrl) });
 
   try {
     const hash = await destWalletClient.writeContract({
