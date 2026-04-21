@@ -249,11 +249,20 @@ export async function relayUserOp(
       signature: userOp.signature,
     };
 
+    // Explicit outer-tx gas. Without this, viem calls eth_estimateGas on
+    // handleOps; if the simulation reverts (common during initial deploys on
+    // Base Sepolia where the account doesn't exist yet), some RPC nodes
+    // return the block gas cap as the estimate and the tx is then rejected
+    // with "exceeds the limit allowed for the block". 3M covers a P-256
+    // passkey UserOp (preVerificationGas ~150K + verificationGasLimit ~500K
+    // + callGasLimit ~300K + overhead + buffer) with headroom.
+    const outerGas = BigInt(userOp.preVerificationGas) + 2_500_000n;
     const hash = await walletClient.writeContract({
       address: config.entryPointAddress,
       abi: ENTRYPOINT_ABI,
       functionName: "handleOps",
       args: [[formattedOp], relayerAccount.address],
+      gas: outerGas < 3_000_000n ? 3_000_000n : outerGas,
     });
 
     await publicClient.waitForTransactionReceipt({ hash });
