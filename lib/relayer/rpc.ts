@@ -11,12 +11,14 @@
 import { http, fallback } from "viem";
 
 export const RPC_POOLS: Record<number, string[]> = {
-  // Base Sepolia
+  // Base Sepolia. Tenderly's public gateway caps eth_sendRawTransaction
+  // size and returns "Request exceeds defined limit" for CCTP-sized txs,
+  // so it's deliberately moved below drpc and the official base.org URL.
   84532: [
-    "https://base-sepolia.gateway.tenderly.co",
     "https://base-sepolia.drpc.org",
     "https://sepolia.base.org",
     "https://base-sepolia-public.nodies.app",
+    "https://base-sepolia.gateway.tenderly.co",
     "https://base-sepolia-rpc.publicnode.com",
   ],
   // Ethereum Sepolia
@@ -67,7 +69,11 @@ export function makeTransport(url: string) {
     const pool = resolvePool(chainId);
     if (pool.includes(url)) {
       const ordered = [url, ...pool.filter(u => u !== url)];
-      return fallback(ordered.map(u => http(u)));
+      // Force the fallback to rotate on any error. viem's default treats
+      // RPC "user errors" (e.g. Tenderly's "Request exceeds defined limit")
+      // as non-retriable and throws immediately; our pool entries are
+      // functionally equivalent so the next one deserves a shot.
+      return fallback(ordered.map(u => http(u)), { shouldThrow: () => false });
     }
   }
   return http(url);
