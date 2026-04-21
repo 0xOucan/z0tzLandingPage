@@ -21,13 +21,14 @@ export const RPC_POOLS: Record<number, string[]> = {
     "https://base-sepolia.gateway.tenderly.co",
     "https://base-sepolia-rpc.publicnode.com",
   ],
-  // Ethereum Sepolia
+  // Ethereum Sepolia. Subquery demoted to last — it returns `null` instead
+  // of `[]` for empty eth_getLogs multi-topic filters, crashing viem.
   11155111: [
-    "https://ethereum-sepolia.rpc.subquery.network/public",
-    "https://eth-sepolia.api.onfinality.io/public",
     "https://sepolia.gateway.tenderly.co",
+    "https://eth-sepolia.api.onfinality.io/public",
     "https://ethereum-sepolia-public.nodies.app",
     "https://ethereum-sepolia-rpc.publicnode.com",
+    "https://ethereum-sepolia.rpc.subquery.network/public",
   ],
   // Arbitrum Sepolia
   421614: [
@@ -39,15 +40,28 @@ export const RPC_POOLS: Record<number, string[]> = {
 };
 
 /**
- * Return the ordered pool of RPC URLs for a chain. If RPC_URL_{chainId} is
- * set, it becomes the primary and the default pool entries (minus any
- * duplicate) follow as fallbacks.
+ * Return the ordered pool of RPC URLs for a chain.
+ *
+ * Env override RPC_URL_{chainId} behavior:
+ *   - If the env URL is NOT already in the default pool (a custom URL like
+ *     an Alchemy/Infora key), it becomes the primary and the default pool
+ *     follows as fallbacks.
+ *   - If the env URL IS already in the default pool (e.g. the legacy
+ *     publicnode default that Vercel deployments were provisioned with),
+ *     the pool's curated ordering is respected — the known-flaky entries
+ *     stay demoted to their curated position instead of being promoted
+ *     back to primary.
+ *
+ * This lets operators override with a real paid RPC but prevents stale
+ * env vars pointing at the default providers from overriding the
+ * curated priority.
  */
 export function resolvePool(chainId: number): string[] {
   const envVal = process.env[`RPC_URL_${chainId}`]?.trim();
   const base = RPC_POOLS[chainId] ?? [];
-  if (envVal && envVal.length > 0) return [envVal, ...base.filter(u => u !== envVal)];
-  return base;
+  if (!envVal || envVal.length === 0) return base;
+  if (base.includes(envVal)) return base; // curated ordering wins
+  return [envVal, ...base.filter(u => u !== envVal)];
 }
 
 /**
