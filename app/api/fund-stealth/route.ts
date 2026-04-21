@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createPublicClient, createWalletClient, http, parseEther, type Address } from "viem";
+import { createPublicClient, createWalletClient, parseEther, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
+import { makeTransport, primaryRpc, RPC_POOLS } from "@/lib/relayer/rpc";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,12 +15,6 @@ const CHAINS: Record<number, any> = {
   84532: baseSepolia,
   11155111: sepolia,
   421614: arbitrumSepolia,
-};
-
-const RPCS: Record<number, string> = {
-  84532: process.env.RPC_URL_84532 ?? "https://base-sepolia-rpc.publicnode.com",
-  11155111: process.env.RPC_URL_11155111 ?? "https://ethereum-sepolia-rpc.publicnode.com",
-  421614: process.env.RPC_URL_421614 ?? "https://arbitrum-sepolia-rpc.publicnode.com",
 };
 
 const FUND_LIMIT = Number(process.env.FUND_STEALTH_LIMIT ?? "50");
@@ -62,14 +57,14 @@ export async function POST(req: NextRequest) {
     }
 
     const chain = CHAINS[chainId];
-    const rpc = RPCS[chainId];
-    if (!chain || !rpc) {
+    const rpc = primaryRpc(chainId);
+    if (!chain || !rpc || !RPC_POOLS[chainId]) {
       return NextResponse.json({ success: false, error: `Chain ${chainId} not supported` }, { status: 400, headers: corsHeaders });
     }
 
     const account = privateKeyToAccount(relayerKey as `0x${string}`);
-    const client = createPublicClient({ chain, transport: http(rpc) });
-    const wallet = createWalletClient({ account, chain, transport: http(rpc) });
+    const client = createPublicClient({ chain, transport: makeTransport(rpc) });
+    const wallet = createWalletClient({ account, chain, transport: makeTransport(rpc) });
 
     // If the client pre-calculated the exact ETH needed, use that directly.
     // Otherwise fall back to gasNeeded-based estimation.
