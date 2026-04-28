@@ -10,6 +10,7 @@ const layers = [
   { layer: "Payments", tech: "Stealth addresses", protects: "Who you pay" },
   { layer: "Recovery", tech: "Steganographic PNG", protects: "How you recover" },
   { layer: "Gas", tech: "Z0tzPaymaster", protects: "That you even tx" },
+  { layer: "Compliance", tech: "Gate + KYC supplier + geofencing", protects: "The protocol from bad actors" },
 ]
 
 export function PrivacyLayersSection() {

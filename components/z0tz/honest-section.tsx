@@ -134,10 +134,35 @@ export function HonestSection() {
           </div>
         </div>
 
-        <p className="text-center text-foreground text-sm font-medium mb-12 max-w-2xl mx-auto">
+        <p className="text-center text-foreground text-sm font-medium mb-8 max-w-2xl mx-auto">
           <span className="text-[var(--bright-red)]">Identity unlinkability</span> +{" "}
           <span className="text-[var(--bright-red)]">amount confidentiality at rest</span>. Wrap/unwrap boundaries are plaintext — being honest about that is what makes the rest trustworthy.
         </p>
+
+        {/* Common-practice / compliance posture callout */}
+        <div className="border border-foreground/30 p-6 bg-secondary mb-12 max-w-3xl mx-auto">
+          <h3 className="text-lg font-bold uppercase tracking-wider mb-4 text-foreground text-center">
+            Where Z0tz follows the market — and where it adds risk mitigation
+          </h3>
+          <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
+            We follow the same posture every credible non-custodial wallet and
+            protocol on the market does. Your keys, your funds. We never freeze
+            balances, never custody flagged value, never run an admin-controlled
+            recovery vault that holds user money.
+          </p>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Where Z0tz actively mitigates risk is at the protocol boundary —
+            the integration points where plaintext value enters the encrypted
+            stack, and where confidential value exits back to plaintext. At
+            those choke points we run three independent layers: an on-chain
+            compliance gate that refuses sanctioned addresses at sweep,
+            withdraw, and bridge time; an external KYC supplier check (yes/no,
+            no PII stored on our side); and IP geofencing at the relayer.
+            Together they reduce the risk that bad actors use Z0tz&apos;s
+            confidentiality to hide harmful funds, while keeping the
+            non-custodial guarantee intact.
+          </p>
+        </div>
 
         {/* Full per-op table — expandable for the curious */}
         <Expandable

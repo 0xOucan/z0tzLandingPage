@@ -27,11 +27,11 @@ export function HeroSection() {
           Z0tz
         </h1>
         <p className="text-xl md:text-2xl text-foreground mb-6 animate-fade-in-up animation-delay-100">
-          Private and gasless from minute one.
+          Confidentiality in a frictionless experience.
         </p>
         <p className="text-base md:text-lg text-muted-foreground mb-10 animate-fade-in-up animation-delay-200 max-w-2xl mx-auto">
-          The encryption layer between you and anything you touch on chain.
-          One passkey. Encrypted and unlinkable balances.
+          One passkey. Encrypted balances. Gasless from minute one. The
+          encryption layer between you and anything you touch on chain.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center animate-fade-in-up animation-delay-400">
