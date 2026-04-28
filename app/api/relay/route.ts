@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { relayUserOp, loadConfigFromEnv, type UserOperation } from "@/lib/relayer/relayer";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
+import { geofenceResponse } from "@/lib/relayer/geofence";
 
 // Rate limiting
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -29,6 +30,9 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
+  const blocked = geofenceResponse(req, corsHeaders);
+  if (blocked) return blocked;
+
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
   if (!checkRateLimit(ip)) {
     return NextResponse.json({ success: false, error: "Rate limit exceeded" }, { status: 429, headers: corsHeaders });

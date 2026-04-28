@@ -4,6 +4,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { makeTransport, primaryRpc, RPC_POOLS } from "@/lib/relayer/rpc";
+import { geofenceResponse } from "@/lib/relayer/geofence";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,6 +26,9 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
+  const blocked = geofenceResponse(req, corsHeaders);
+  if (blocked) return blocked;
+
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
   const now = Date.now();
   const entry = fundLimitMap.get(ip);

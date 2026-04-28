@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { isLedgerEnabled, submitSweepToLedger } from "@/lib/relayer/ledger";
+import { geofenceResponse } from "@/lib/relayer/geofence";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +14,9 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
+  const blocked = geofenceResponse(req, corsHeaders);
+  if (blocked) return blocked;
+
   if (!isLedgerEnabled()) {
     return NextResponse.json({ error: "ledger-disabled" }, { status: 503, headers: corsHeaders });
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { relayBridge, loadConfigFromEnv, type BridgeRequest } from "@/lib/relayer/relayer";
+import { geofenceResponse } from "@/lib/relayer/geofence";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +13,9 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
+  const blocked = geofenceResponse(req, corsHeaders);
+  if (blocked) return blocked;
+
   try {
     const body = (await req.json()) as BridgeRequest;
     const { lockId, sender, amount, srcChainId, destChainId, destRecipient } = body;
