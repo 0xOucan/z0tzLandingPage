@@ -89,10 +89,12 @@ export function DiagramsSection() {
             What you can do, end to end
           </div>
           <h2 className="font-mono text-3xl font-bold tracking-tight md:text-5xl">
-            Five flows. One passkey.
+            Eight flows. One passkey.
           </h2>
           <p className="mt-4 text-base text-muted-foreground md:text-lg">
-            Pick a scenario below to trace the path. Each tab is one thing you can do with Z0tz.
+            Pick a scenario below to trace the path. Each tab is one thing you
+            can do with Z0tz — including the compliance refuse path that keeps
+            flagged funds out of the privacy stack without taking custody.
           </p>
         </div>
       </RevealBlock>

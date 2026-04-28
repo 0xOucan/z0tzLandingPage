@@ -11,22 +11,22 @@ interface Layer {
 
 const layers: Layer[] = [
   {
-    title: "On-chain compliance gate",
+    title: "On-chain AML gate",
     enforcement: "Smart contract",
-    body: "A pure predicate contract that vaults, sweepers, and bridges consult before integrating funds. If the funder is on the deny-list, the call reverts with a typed reason. The gate has zero token-moving authority — it answers yes or no, never holds value. Funds stay at the user's wallet keys regardless.",
-    defaultPosture: "Off by default — empty deny-list ⇒ everyone allowed.",
-  },
-  {
-    title: "External KYC supplier",
-    enforcement: "Off-chain provider, on-chain boolean",
-    body: "We bridge to standard providers (Sumsub, Persona, Chainalysis KYT, etc.) for the actual identity verification — they own the flow we don't want to reinvent. Z0tz only stores the boolean answer plus an optional expiry. No documents, no PII, no biometrics on our side.",
-    defaultPosture: "Off by default — KYC is opt-in per integration partner.",
+    body: "A pure predicate contract that vaults, sweepers, and bridges consult before integrating funds. If the funder is on the OFAC / sanctions deny-list, the call reverts with a typed reason. The gate has zero token-moving authority — it answers yes or no, never holds value. Funds stay at the user's wallet keys regardless.",
+    defaultPosture: "On by default — Z0tz refuses sanctioned funds at the boundary.",
   },
   {
     title: "Relayer geofencing",
     enforcement: "API layer (HTTP)",
-    body: "Restricted regions hit a 403 at the relayer before anything lands on chain. Country list is configurable and matches the published OFAC sanctions set by default. Localhost and private-network requests pass through so local development isn't broken.",
-    defaultPosture: "Off by default — country list empty until ops flip it on.",
+    body: "Restricted regions hit a 403 at the relayer before anything lands on chain. Country list matches the published OFAC sanctions set. Localhost and private-network requests pass through so local development isn't broken.",
+    defaultPosture: "On by default — Z0tz's relayer refuses requests from restricted regions.",
+  },
+  {
+    title: "KYC supplier (on-demand)",
+    enforcement: "Off-chain provider, on-chain boolean",
+    body: "Bridges to standard providers (Sumsub, Persona, Chainalysis KYT) when a dApp or institution integrating Z0tz as an SDK needs it. The supplier owns the verification flow; Z0tz only stores the yes/no answer plus an optional expiry. No documents, no PII, no biometrics on Z0tz's side.",
+    defaultPosture: "Off by default — opt-in per integration. dApps and institutions enable it for their own users.",
   },
 ]
 
@@ -67,8 +67,10 @@ export function ComplianceSection() {
           </h2>
           <p className="mx-auto mb-16 max-w-2xl text-center text-base text-muted-foreground md:text-lg">
             Z0tz refuses to lend its confidentiality to bad actors and refuses
-            to take custody of anyone&apos;s funds. The two are not in tension —
-            we enforce at integration boundaries, never at the wallet boundary.
+            to take custody of anyone&apos;s funds. AML and geofencing run by
+            default; KYC is on-demand for dApps and institutions integrating
+            Z0tz as an SDK. We enforce at integration boundaries, never at the
+            wallet boundary.
           </p>
 
           <div className="grid md:grid-cols-3 gap-6 mb-16">

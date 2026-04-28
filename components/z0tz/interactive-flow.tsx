@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 
 // ─── Scenarios ─────────────────────────────────────────────────────────────
 
-type NodeKind = "plain" | "stealth" | "ephemeral" | "ledger" | "bridge" | "target"
+type NodeKind = "plain" | "stealth" | "ephemeral" | "ledger" | "bridge" | "target" | "vault" | "gate"
 
 interface Node {
   id: string
@@ -42,6 +42,12 @@ const NODES_POOL: Record<string, Node> = {
   ephB:    { id: "ephB",    label: "Ephemeral",      sub: "one-shot",        x: 600, y: 180, kind: "ephemeral" },
   bridgeA: { id: "bridgeA", label: "CCTP",           sub: "V2 burn",         x: 480, y: 180, kind: "bridge" },
   target:  { id: "target",  label: "Target EOA",     sub: "any address",     x: 880, y: 180, kind: "target" },
+  vaultA:  { id: "vaultA",  label: "Vault A",        sub: "confidential",    x: 480, y: 180, kind: "vault" },
+  vaultB:  { id: "vaultB",  label: "Vault B",        sub: "confidential",    x: 880, y: 180, kind: "vault" },
+  ledgerOut: { id: "ledgerOut", label: "Encrypted ledger", sub: "chain A",   x: 750, y: 180, kind: "ledger" },
+  gate:    { id: "gate",    label: "AML gate",       sub: "deny-list",       x: 480, y: 180, kind: "gate" },
+  hold:    { id: "hold",    label: "Funds stay",     sub: "your EOA, your keys", x: 750, y: 180, kind: "target" },
+  extFlag: { id: "extFlag", label: "Flagged sender", sub: "OFAC / sanctioned", x: 210, y: 180, kind: "plain" },
 }
 
 const SCENARIOS: Scenario[] = [
@@ -140,6 +146,60 @@ const SCENARIOS: Scenario[] = [
       { from: "ephB",    to: "ledgerB", label: "sweep" },
     ],
     pathD: "M 80,180 L 280,180 L 480,180 L 680,180 L 880,180",
+  },
+  {
+    id: "defi-same",
+    title: "DeFi · same chain",
+    blurb:
+      "Deposit confidential balance into a same-chain vault. Yield accrues under your pseudonymous ledger ID; withdraw decrypts back into the ledger. The vault never sees your wallet.",
+    nodes: [
+      { ...NODES_POOL.ledgerA,  x: 210, y: 180 },
+      { ...NODES_POOL.vaultA,   x: 480, y: 180 },
+      { ...NODES_POOL.ledgerOut, x: 750, y: 180 },
+    ],
+    edges: [
+      { from: "ledgerA",  to: "vaultA",    label: "deposit · confidential" },
+      { from: "vaultA",   to: "ledgerOut", label: "withdraw + yield" },
+    ],
+    pathD: "M 210,180 L 480,180 L 750,180",
+  },
+  {
+    id: "defi-cross",
+    title: "DeFi · cross-chain",
+    blurb:
+      "Move encrypted balance from chain A to a vault on chain B in one signature. CCTP burns on A, an ephemeral on B forwards into the vault. Two chains, one yield position, never your address on either.",
+    nodes: [
+      { ...NODES_POOL.ledgerA, x: 80,  y: 180 },
+      { ...NODES_POOL.ephA,    x: 280, y: 180, label: "Ephemeral A" },
+      { ...NODES_POOL.bridgeA, x: 480, y: 180 },
+      { ...NODES_POOL.ephB,    x: 680, y: 180, label: "Ephemeral B" },
+      { ...NODES_POOL.vaultB,  x: 880, y: 180 },
+    ],
+    edges: [
+      { from: "ledgerA", to: "ephA",    label: "spend" },
+      { from: "ephA",    to: "bridgeA", label: "burn" },
+      { from: "bridgeA", to: "ephB",    label: "mint" },
+      { from: "ephB",    to: "vaultB",  label: "deposit" },
+    ],
+    pathD: "M 80,180 L 280,180 L 480,180 L 680,180 L 880,180",
+  },
+  {
+    id: "compliance-refuse",
+    title: "Compliance · refused at sweep",
+    blurb:
+      "When the depositor is on the AML deny-list, the gate refuses the sweep. Z0tz never holds the funds — they remain at your stealth EOA, your keys still work, and the privacy stack stays unused for this value. Refuse to integrate, never custody.",
+    nodes: [
+      { ...NODES_POOL.extFlag, x: 80,  y: 180 },
+      { ...NODES_POOL.stealth, x: 320, y: 180 },
+      { ...NODES_POOL.gate,    x: 560, y: 180 },
+      { ...NODES_POOL.hold,    x: 800, y: 180 },
+    ],
+    edges: [
+      { from: "extFlag", to: "stealth", label: "deposit (flagged)" },
+      { from: "stealth", to: "gate",    label: "sweep request" },
+      { from: "gate",    to: "hold",    label: "refused · ComplianceRejected" },
+    ],
+    pathD: "M 80,180 L 320,180 L 560,180 L 800,180",
   },
 ]
 
@@ -262,11 +322,15 @@ export function InteractiveFlow() {
             const isHovered = hovered === n.id
             const fill =
               n.kind === "ledger" ? "rgba(230,57,70,0.14)" :
+              n.kind === "vault" ? "rgba(230,57,70,0.22)" :
+              n.kind === "gate" ? "rgba(245,158,11,0.18)" :
               n.kind === "ephemeral" ? "rgba(10,10,10,1)" :
               n.kind === "bridge" ? "rgba(10,10,10,1)" :
               "rgba(26,26,26,1)"
             const stroke =
               n.kind === "ledger" ? "rgba(230,57,70,0.7)" :
+              n.kind === "vault" ? "rgba(230,57,70,0.9)" :
+              n.kind === "gate" ? "rgba(245,158,11,0.9)" :
               n.kind === "ephemeral" ? "rgba(245,245,245,0.18)" :
               n.kind === "bridge" ? "rgba(245,245,245,0.35)" :
               "rgba(245,245,245,0.25)"
