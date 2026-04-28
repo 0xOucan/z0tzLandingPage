@@ -7,6 +7,7 @@ import { TestnetSection } from "@/components/z0tz/testnet-section"
 import { DevelopersSection } from "@/components/z0tz/developers-section"
 import { HonestSection } from "@/components/z0tz/honest-section"
 import { ComplianceSection } from "@/components/z0tz/compliance-section"
+import { DefiSection } from "@/components/z0tz/defi-section"
 import { RoadmapSection } from "@/components/z0tz/roadmap-section"
 import { Footer } from "@/components/z0tz/footer"
 
@@ -16,7 +17,8 @@ import { Footer } from "@/components/z0tz/footer"
  *   Hero          → one line, one promise
  *   Why           → what chains leak, what Z0tz gives back
  *   Honest        → what's public, what's private (expectations before architecture)
- *   Compliance    → risk-mitigation posture: gate, KYC supplier, geofencing
+ *   Compliance    → AML + geofencing default-on, KYC on-demand for SDK
+ *   DeFi          → why private DeFi + Tezcatli vault implementation
  *   Composability → how it fits with existing infra
  *   Diagrams      → see the flows
  *   Testnet       → try it yourself
@@ -31,6 +33,7 @@ export default function Home() {
       <WhySection />
       <HonestSection />
       <ComplianceSection />
+      <DefiSection />
       <ComposabilitySection />
       <DiagramsSection />
       <TestnetSection />

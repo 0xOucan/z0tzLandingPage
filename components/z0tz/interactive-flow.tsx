@@ -223,12 +223,14 @@ export function InteractiveFlow() {
 
   return (
     <div>
-      {/* Scenario tabs — single-line pill row, centered, horizontally scrollable
-          on very narrow screens so labels never wrap to two lines */}
+      {/* Scenario tabs — wraps to multiple lines on narrow screens so users
+          never have to horizontally scroll. With 8 scenarios the row also
+          wraps at typical desktop widths. Tighter padding + slightly smaller
+          font keeps the row compact. */}
       <div
         role="tablist"
         aria-label="Flow scenario"
-        className="mb-1 flex flex-nowrap justify-center gap-2 overflow-x-auto"
+        className="mb-4 flex flex-wrap justify-center gap-2 px-2"
       >
         {SCENARIOS.map((s, i) => {
           const active = i === idx
@@ -238,7 +240,7 @@ export function InteractiveFlow() {
               role="tab"
               aria-selected={active}
               onClick={() => setIdx(i)}
-              className={`font-mono text-sm uppercase tracking-[0.12em] whitespace-nowrap px-4 py-2.5 border transition-colors duration-200 ${
+              className={`font-mono text-xs md:text-sm uppercase tracking-[0.1em] whitespace-nowrap px-3 py-2 md:px-4 md:py-2.5 border transition-colors duration-200 ${
                 active
                   ? "border-[var(--bright-red)] text-[var(--bright-red)] bg-[var(--accent-glow)]"
                   : "border-border text-muted-foreground hover:border-foreground hover:text-foreground"

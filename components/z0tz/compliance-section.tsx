@@ -30,26 +30,6 @@ const layers: Layer[] = [
   },
 ]
 
-interface DefiPoint {
-  label: string
-  body: string
-}
-
-const defiPoints: DefiPoint[] = [
-  {
-    label: "Compliance-aware composition",
-    body: "Confidential DeFi runs through the same gate. A flagged depositor can't compose with Aave, Morpho, or any vault we wire — the rejection happens before the encrypted balance is ever touched.",
-  },
-  {
-    label: "Late-discovery enforcement",
-    body: "Oracles flag addresses hours after an incident. If a user deposited clean and the depositor was flagged later, the gate re-checks at every cash-out and bridge. Tainted contributions stay in the ledger; clean portions exit as normal.",
-  },
-  {
-    label: "Refuse, don't hold",
-    body: "When a check fails we don't move funds into a custody vault. We refuse to integrate; the value remains at the user-controlled stealth EOA. The user keeps their keys; Z0tz keeps no custody risk.",
-  },
-]
-
 export function ComplianceSection() {
   const { ref, revealed } = useScrollReveal()
 
@@ -130,36 +110,6 @@ export function ComplianceSection() {
             </div>
           </div>
 
-          {/* DeFi-specific callout */}
-          <div className="border border-foreground/30 p-8 bg-secondary">
-            <div className="mb-3">
-              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--bright-red)]/80">
-                Confidential DeFi
-              </span>
-            </div>
-            <h3 className="text-xl md:text-2xl font-bold text-foreground mb-3">
-              How this looks for DeFi
-            </h3>
-            <p className="text-sm md:text-base text-muted-foreground mb-8 leading-relaxed max-w-3xl">
-              Confidential DeFi composition is where the compliance posture
-              earns its keep. Vaults like Tezcatli&apos;s confidential USDC
-              deposit are the obvious choke point — funds enter the encrypted
-              ledger only if the gate accepts them, and they exit only if the
-              gate still accepts them at withdraw time.
-            </p>
-            <div className="grid md:grid-cols-3 gap-6">
-              {defiPoints.map((p) => (
-                <div key={p.label}>
-                  <p className="text-foreground font-bold text-sm mb-2">
-                    {p.label}
-                  </p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {p.body}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </section>

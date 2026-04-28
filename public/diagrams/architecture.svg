@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" role="img" aria-labelledby="t3 d3">
-  <title id="t3">Z0tz architecture — GUI, relayer, paymaster, on-chain stack, CoFHE network</title>
-  <desc id="d3">The GUI unlocks a passkey locally, signs requests to a relayer that submits UserOps through a paymaster, runs sweeps through the sweeper into the vault, credits the encrypted ledger, and decrypts via the CoFHE threshold network.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" role="img" aria-labelledby="t3 d3">
+  <title id="t3">Z0tz architecture — GUI, relayer, paymaster, on-chain stack, CoFHE network, compliance layer</title>
+  <desc id="d3">The GUI unlocks a passkey locally, signs requests to a relayer that submits UserOps through a paymaster, runs sweeps through the sweeper into the vault, credits the encrypted ledger, and decrypts via the CoFHE threshold network. The AML gate refuses sanctioned funders at the integration boundary; the depositor registry indexes historical depositors for late-discovery enforcement; an optional KYC supplier provides yes/no attestations for SDK integrators.</desc>
   <defs>
     <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0,0 L10,5 L0,10 z" fill="#8A8A8A"/>
@@ -25,7 +25,7 @@
     .zone      { fill: rgba(245,245,245,0.035); stroke: rgba(245,245,245,0.08); }
   </style>
 
-  <rect class="bg" width="960" height="560"/>
+  <rect class="bg" width="960" height="640"/>
 
   <!-- Zone: user device -->
   <rect class="zone" x="20" y="30" width="280" height="160" rx="16"/>
@@ -64,7 +64,7 @@
   <path class="path-dash" d="M280,110 Q 500,200 790,90"/>
 
   <!-- Zone: on-chain -->
-  <rect class="zone" x="20" y="218" width="920" height="310" rx="16"/>
+  <rect class="zone" x="20" y="218" width="920" height="390" rx="16"/>
   <text x="34" y="238" class="lbl-group">On chain · Base Sepolia · Eth Sepolia · Arb Sepolia</text>
 
   <rect class="node" x="40" y="254" width="180" height="56" rx="10"/>
@@ -109,6 +109,18 @@
   <rect class="node" x="560" y="438" width="360" height="50" rx="10"/>
   <text x="740" y="460" class="lbl" text-anchor="middle">CCTP V2 TokenMessenger</text>
   <text x="740" y="476" class="lbl-sub" text-anchor="middle">Circle burn/mint · cross-chain USDC</text>
+
+  <!-- Compliance row — AML on by default, depositor registry, KYC on demand -->
+  <text x="34" y="520" class="lbl-group">Compliance · refuse to integrate, never custody</text>
+  <rect class="node-accent" x="40" y="534" width="280" height="56" rx="10"/>
+  <text x="180" y="556" class="lbl" text-anchor="middle">AML gate</text>
+  <text x="180" y="572" class="lbl-sub" text-anchor="middle">deny-list · canShield / canUnshield · default ON</text>
+  <rect class="node" x="340" y="534" width="280" height="56" rx="10"/>
+  <text x="480" y="556" class="lbl" text-anchor="middle">Depositor registry</text>
+  <text x="480" y="572" class="lbl-sub" text-anchor="middle">stealth → (depositor, amount) · audit trail</text>
+  <rect class="node-ext" x="640" y="534" width="280" height="56" rx="10"/>
+  <text x="780" y="556" class="lbl" text-anchor="middle">KYC supplier</text>
+  <text x="780" y="572" class="lbl-sub" text-anchor="middle">yes/no boolean · on-demand for SDK integrators</text>
 
   <!-- On-chain flow arrows -->
   <path class="path" d="M220,282 L240,282" marker-end="url(#arr3)"/>

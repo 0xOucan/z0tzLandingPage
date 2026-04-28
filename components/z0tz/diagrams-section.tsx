@@ -21,11 +21,11 @@ const blocks: DiagramBlock[] = [
     eyebrow: "Architecture",
     title: "What runs where",
     lead:
-      "Passkey stays on your device. Three contracts — sweeper, vault, ledger — move money in and out. CoFHE handles threshold decryption off-chain.",
+      "Passkey stays on your device. Five contracts move and gate money in and out — sweeper, vault, ledger, AML gate, depositor registry. KYC supplier is on-demand for SDK integrators. CoFHE handles threshold decryption off-chain; the relayer geofences requests at the API edge.",
     src: "/diagrams/architecture.svg",
     alt: "System architecture diagram.",
     w: 960,
-    h: 560,
+    h: 640,
   },
 ]
 
