@@ -6,11 +6,15 @@ import {
   createPublicClient,
   createWalletClient,
   http,
+  concat,
+  keccak256,
+  encodeAbiParameters,
+  parseAbiParameters,
   type Address,
   type Hex,
   type Chain,
 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { privateKeyToAccount, sign } from "viem/accounts";
 import { sepolia, arbitrumSepolia, baseSepolia } from "viem/chains";
 import { makeTransport, primaryRpc } from "./rpc";
 
@@ -28,6 +32,8 @@ export interface UserOperation {
 
 export interface RelayerConfig {
   relayerPrivateKey: Hex;
+  /** Paymaster operator key (signs AA-6 sponsorship envelopes server-side). */
+  paymasterOperatorKey?: Hex;
   rpcUrls: Record<number, string>;
   entryPointAddress: Address;
   allowedChains: number[];
@@ -156,6 +162,12 @@ export function loadConfigFromEnv(): RelayerConfig {
 
   return {
     relayerPrivateKey,
+    // Default to the relayer key when no separate operator key is set.
+    // Option A (operator == relayer EOA on the paymaster): a single
+    // RELAYER_PRIVATE_KEY satisfies both gas payment and AA-6 envelope
+    // signing. Override with PAYMASTER_OPERATOR_KEY when running with a
+    // separate operator key.
+    paymasterOperatorKey: (process.env.PAYMASTER_OPERATOR_KEY as Hex | undefined) ?? relayerPrivateKey,
     rpcUrls,
     entryPointAddress: (process.env.ENTRYPOINT_ADDRESS ??
       "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108") as Address,
@@ -167,6 +179,89 @@ export function loadConfigFromEnv(): RelayerConfig {
     factoryAddresses,
     privateBridgeAddresses,
   } as RelayerConfig;
+}
+
+/**
+ * Sign the AA-6 sponsorship envelope for a UserOperation server-side.
+ * The operator key never leaves the relayer (Vercel env var).
+ *
+ * Mirrors Z0tz/relayer/lib/relayer.ts:signEnvelope. The envelope hash
+ * binds (userOp-without-paymaster-sig, feeCap, validUntil, validAfter,
+ * chainId, paymasterAddr) — matching Z0tzPaymaster._hashUserOpForEnvelope.
+ */
+async function signEnvelope(
+  userOp: UserOperation,
+  chainId: number,
+  operatorKey: Hex,
+): Promise<UserOperation> {
+  const pmd = userOp.paymasterAndData;
+  if (!pmd || pmd === "0x" || pmd.length < 2 + 2 * (52 + 32 + 6 + 6 + 65)) {
+    return userOp;
+  }
+  const pmdBytes = hexToBytes(pmd);
+  const paymasterAddr = ("0x" + bytesToHex(pmdBytes.slice(0, 20))) as Address;
+  const dataOffset = 52;
+  const feeCap = bytesToBigInt(pmdBytes.slice(dataOffset, dataOffset + 32));
+  const validUntil = Number(bytesToBigInt(pmdBytes.slice(dataOffset + 32, dataOffset + 38)));
+  const validAfter = Number(bytesToBigInt(pmdBytes.slice(dataOffset + 38, dataOffset + 44)));
+  const pmdNoSig = pmdBytes.slice(0, pmdBytes.length - 65);
+
+  const inner = keccak256(encodeAbiParameters(
+    parseAbiParameters("address,uint256,bytes32,bytes32,bytes32,uint256,bytes32,bytes32"),
+    [
+      userOp.sender,
+      BigInt(userOp.nonce),
+      keccak256(userOp.initCode),
+      keccak256(userOp.callData),
+      userOp.accountGasLimits,
+      BigInt(userOp.preVerificationGas),
+      userOp.gasFees,
+      keccak256(("0x" + bytesToHex(pmdNoSig)) as Hex),
+    ],
+  ));
+  const ENTRYPOINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108" as Address;
+  const paymasterHash = keccak256(encodeAbiParameters(
+    parseAbiParameters("bytes32,address,uint256"),
+    [inner, ENTRYPOINT, BigInt(chainId)],
+  ));
+  const envelope = keccak256(encodeAbiParameters(
+    parseAbiParameters("bytes32,uint256,uint48,uint48,uint256,address"),
+    [paymasterHash, feeCap, validUntil, validAfter, BigInt(chainId), paymasterAddr],
+  ));
+  const ethSigned = keccak256(concat([
+    "0x19457468657265756d205369676e6564204d6573736167653a0a3332" as Hex,
+    envelope,
+  ]));
+  const sigObj = await sign({ hash: ethSigned, privateKey: operatorKey });
+  const sig65 = serializeSig65(sigObj);
+  const newPmd = new Uint8Array(pmdBytes.length);
+  newPmd.set(pmdBytes.slice(0, pmdBytes.length - 65));
+  newPmd.set(sig65, pmdBytes.length - 65);
+  return { ...userOp, paymasterAndData: ("0x" + bytesToHex(newPmd)) as Hex };
+}
+
+function serializeSig65(sig: { r: Hex; s: Hex; v?: bigint; yParity?: number }): Uint8Array {
+  const r = hexToBytes(sig.r);
+  const s = hexToBytes(sig.s);
+  const yParity = sig.yParity ?? (sig.v !== undefined ? Number(sig.v) - 27 : 0);
+  const v = 27 + (yParity & 1);
+  const out = new Uint8Array(65);
+  out.set(r, 0);
+  out.set(s, 32);
+  out[64] = v;
+  return out;
+}
+function hexToBytes(hex: Hex | string): Uint8Array {
+  const s = typeof hex === "string" && hex.startsWith("0x") ? hex.slice(2) : hex;
+  const out = new Uint8Array(s.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(s.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+function bytesToHex(b: Uint8Array): string {
+  return Array.from(b).map(x => x.toString(16).padStart(2, "0")).join("");
+}
+function bytesToBigInt(b: Uint8Array): bigint {
+  return b.length === 0 ? 0n : BigInt("0x" + bytesToHex(b));
 }
 
 export function validateUserOp(
@@ -218,6 +313,13 @@ export async function relayUserOp(
   const validationError = validateUserOp(userOp, config, chainId);
   if (validationError) {
     return { success: false, error: validationError };
+  }
+
+  // AA-6 envelope: relayer signs server-side using PAYMASTER_OPERATOR_KEY.
+  // Operator key never leaves the Vercel env. Skipped only if no operator
+  // key is configured (legacy paymaster).
+  if (config.paymasterOperatorKey) {
+    userOp = await signEnvelope(userOp, chainId, config.paymasterOperatorKey);
   }
 
   const chain = CHAINS[chainId] ?? {
