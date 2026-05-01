@@ -11,30 +11,40 @@
 import { http, fallback } from "viem";
 
 export const RPC_POOLS: Record<number, string[]> = {
-  // Base Sepolia. Tenderly's public gateway caps eth_sendRawTransaction
-  // size and returns "Request exceeds defined limit" for CCTP-sized txs,
-  // so it's deliberately moved below drpc and the official base.org URL.
+  // Base Sepolia. Lead with the official Coinbase node (single-backend,
+  // consistent nonce reads across consecutive writes — relevant for the
+  // sweep + spend pipeline). Tenderly is reliable but caps
+  // eth_sendRawTransaction size on CCTP-sized payloads, so it sits behind
+  // drpc / sentio.
   84532: [
+    "https://sepolia.base.org",                       // official Coinbase, single backend
     "https://base-sepolia.drpc.org",
-    "https://sepolia.base.org",
-    "https://base-sepolia-public.nodies.app",
     "https://base-sepolia.gateway.tenderly.co",
+    "https://rpc.sentio.xyz/base-sepolia",
+    "https://base-sepolia-public.nodies.app",
     "https://base-sepolia-rpc.publicnode.com",
   ],
-  // Ethereum Sepolia. Subquery demoted to last — it returns `null` instead
-  // of `[]` for empty eth_getLogs multi-topic filters, crashing viem.
+  // Ethereum Sepolia. Lead with ethpandaops (single backend, low latency).
+  // Subquery demoted to last — it returns `null` instead of `[]` for empty
+  // eth_getLogs multi-topic filters, crashing viem.
   11155111: [
+    "https://rpc.sepolia.ethpandaops.io",             // ethpandaops, single backend
     "https://sepolia.gateway.tenderly.co",
+    "https://sepolia.drpc.org",
+    "https://rpc.sentio.xyz/sepolia",
+    "https://1rpc.io/sepolia",
     "https://eth-sepolia.api.onfinality.io/public",
     "https://ethereum-sepolia-public.nodies.app",
     "https://ethereum-sepolia-rpc.publicnode.com",
-    "https://ethereum-sepolia.rpc.subquery.network/public",
   ],
-  // Arbitrum Sepolia
+  // Arbitrum Sepolia. Lead with the official Offchain Labs RPC (single
+  // backend) — drpc and tenderly behind for redundancy, public-node load-
+  // balancer last.
   421614: [
+    "https://sepolia-rollup.arbitrum.io/rpc",         // official Offchain Labs, single backend
     "https://arbitrum-sepolia.drpc.org",
     "https://arbitrum-sepolia.gateway.tenderly.co",
-    "https://sepolia-rollup.arbitrum.io/rpc",
+    "https://api.zan.top/arb-sepolia",
     "https://arbitrum-sepolia-rpc.publicnode.com",
   ],
 };
