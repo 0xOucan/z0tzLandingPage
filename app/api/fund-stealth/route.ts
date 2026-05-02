@@ -18,7 +18,12 @@ const CHAINS: Record<number, any> = {
   421614: arbitrumSepolia,
 };
 
-const FUND_LIMIT = Number(process.env.FUND_STEALTH_LIMIT ?? "50");
+// Default raised from 50 to 500/hour. The V6.5 super script alone consumes
+// ~52 fund-stealth calls per end-to-end run (3 cashin + 18 bridges + 18
+// xc-cashouts + 3 same-chain DeFi + 10 cross-chain DeFi). 50/hour throttled
+// it to one full run per hour, with no headroom for retries during testing.
+// Override via FUND_STEALTH_LIMIT env when the threat model demands tighter.
+const FUND_LIMIT = Number(process.env.FUND_STEALTH_LIMIT ?? "500");
 const fundLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 export async function OPTIONS() {
