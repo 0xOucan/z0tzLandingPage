@@ -150,11 +150,18 @@ export async function POST(req: NextRequest) {
       address: onChainAdapter, abi: ADAPTER_ABI, functionName: "aToken",
     }) as Address;
 
-    const [strategyShares, idleHint, aTokenBalance] = await Promise.all([
+    // Source of truth for "idle USDC available to unshield" is the wrapper's
+    // actual underlying balance, NOT vault.idleAssetsHint() — the contract's
+    // own comment marks the hint as a lower bound that never decrements on
+    // user withdraws, so it over-counts after every withdraw and the redeem
+    // gets sized too small. tzcUSDC is dedicated to the Tezcatli vault, so
+    // its USDC reserve maps 1:1 to vault-attributable idle.
+    const [strategyShares, wrapperReserve, aTokenBalance] = await Promise.all([
       client.readContract({ address: cfg.vault, abi: VAULT_ABI, functionName: "strategySharesByAdapter", args: [onChainAdapter] }) as Promise<bigint>,
-      client.readContract({ address: cfg.vault, abi: VAULT_ABI, functionName: "idleAssetsHint" }) as Promise<bigint>,
-      client.readContract({ address: aToken,    abi: ERC20_ABI, functionName: "balanceOf",          args: [onChainAdapter] }) as Promise<bigint>,
+      client.readContract({ address: cfg.underlying, abi: ERC20_ABI, functionName: "balanceOf",          args: [cfg.tzcUSDC] }) as Promise<bigint>,
+      client.readContract({ address: aToken,    abi: ERC20_ABI, functionName: "balanceOf",               args: [onChainAdapter] }) as Promise<bigint>,
     ]);
+    const idleHint = wrapperReserve; // expose under the same name for the response shape below
 
     if (strategyShares === 0n) {
       return NextResponse.json({
@@ -171,18 +178,19 @@ export async function POST(req: NextRequest) {
     let amountWei: bigint = 0n;
     if (amountUsdc) {
       amountWei = BigInt(amountUsdc);
-      // Skip if the existing idle hint already covers the request. Saves a
-      // tx when multiple withdraws stack up.
-      if (idleHint >= amountWei) {
+      // Skip if the wrapper reserve already covers the request — the unshield
+      // can pay out directly from existing idle without touching Aave.
+      if (wrapperReserve >= amountWei) {
         return NextResponse.json({
           ok: true, skipped: true,
-          reason: `idleHint=${idleHint} already covers request=${amountWei}`,
-          idleHint: idleHint.toString(),
+          reason: `wrapperReserve=${wrapperReserve} already covers request=${amountWei}`,
+          wrapperReserve: wrapperReserve.toString(),
+          strategyShares: strategyShares.toString(),
         }, { status: 200, headers: corsHeaders });
       }
-      // Need to redeem (amountWei - idleHint) plus buffer. Round up via
-      // BPS multiplication. Cap at total shares.
-      const shortfall = amountWei - idleHint;
+      // Redeem the actual shortfall plus buffer. Cap at total strategy
+      // shares so we never request more than the adapter holds.
+      const shortfall = amountWei - wrapperReserve;
       sharesToRedeem = (shortfall * (10000n + REDEEM_BUFFER_BPS)) / 10000n;
       if (sharesToRedeem > strategyShares) sharesToRedeem = strategyShares;
     } else {
