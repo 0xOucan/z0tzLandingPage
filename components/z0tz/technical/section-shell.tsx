@@ -56,10 +56,10 @@ interface KeyValueRow {
 
 export function KeyValueGrid({ rows }: { rows: KeyValueRow[] }) {
   return (
-    <dl className="grid sm:grid-cols-[180px_1fr] gap-x-6 gap-y-3 text-sm">
+    <dl className="space-y-5 text-sm">
       {rows.map((r) => (
-        <div key={r.label} className="contents">
-          <dt className="font-mono text-xs uppercase tracking-wider text-foreground/80">
+        <div key={r.label}>
+          <dt className="font-mono text-xs uppercase tracking-wider text-foreground/80 mb-1.5 break-words">
             {r.label}
           </dt>
           <dd className="text-muted-foreground leading-relaxed">{r.value}</dd>
