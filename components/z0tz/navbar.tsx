@@ -27,12 +27,20 @@ export function Navbar() {
             Z0tz
           </span>
         </a>
-        <a
-          href="/app"
-          className="glow-hover border border-foreground bg-transparent text-foreground px-6 py-2 text-sm uppercase tracking-widest font-medium transition-all duration-200 hover:bg-foreground hover:text-background"
-        >
-          Launch App →
-        </a>
+        <div className="flex items-center gap-5">
+          <a
+            href="/technical"
+            className="hidden sm:inline text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Technical
+          </a>
+          <a
+            href="/app"
+            className="glow-hover border border-foreground bg-transparent text-foreground px-6 py-2 text-sm uppercase tracking-widest font-medium transition-all duration-200 hover:bg-foreground hover:text-background"
+          >
+            Launch App →
+          </a>
+        </div>
       </div>
     </nav>
   )
