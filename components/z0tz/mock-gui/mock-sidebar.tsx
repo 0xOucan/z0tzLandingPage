@@ -15,6 +15,7 @@ const MAIN_NAV: Array<[string, string]> = [
   ["cashin",            "Cash In"],
   ["cashout",           "Cash Out"],
   ["bridge",            "Bridge"],
+  ["defi",              "DeFi"],
   ["permanentStealths", "Permanent Stealths"],
 ]
 

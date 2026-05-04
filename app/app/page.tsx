@@ -7,6 +7,7 @@ import { MockDashboard } from "@/components/z0tz/mock-gui/mock-dashboard"
 import { MockBridge } from "@/components/z0tz/mock-gui/mock-bridge"
 import { MockCashIn } from "@/components/z0tz/mock-gui/mock-cashin"
 import { MockCashOut } from "@/components/z0tz/mock-gui/mock-cashout"
+import { MockDefi } from "@/components/z0tz/mock-gui/mock-defi"
 import { MockHistory } from "@/components/z0tz/mock-gui/mock-history"
 import { MockSettings } from "@/components/z0tz/mock-gui/mock-settings"
 import { MockPermanentStealths } from "@/components/z0tz/mock-gui/mock-permanent-stealths"
@@ -38,6 +39,7 @@ export default function AppPage() {
         {page === "cashin"             && <MockCashIn />}
         {page === "cashout"            && <MockCashOut />}
         {page === "bridge"             && <MockBridge />}
+        {page === "defi"               && <MockDefi />}
         {page === "permanentStealths"  && <MockPermanentStealths />}
         {page === "history"            && <MockHistory />}
         {page === "settings"           && <MockSettings />}
