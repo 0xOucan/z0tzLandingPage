@@ -7,50 +7,50 @@ import { useScrollReveal } from "@/hooks/use-scroll-reveal"
  * V6.5.2 verified contract addresses. Ledger / Vault / Sweeper form the three
  * primitives introduced in V6.5 — the older one-shot sweeper and wrapper are
  * still listed for reference but the active flow only touches these three.
- * Source-of-truth: contracts/deployments/v6.5-ledger-{chainId}.json.
+ * Source-of-truth: contracts/deployments/fullstack-{chainId}.json (2026-05-01).
  */
 const contracts = [
   {
     name: "Z0tzPrivateLedger",
     description: "Pseudonymous IDs · spend · rotate · cashout actions",
-    eth: "https://sepolia.etherscan.io/address/0xE0333Bc3E574Dcb37414D9D3e576458AfFDE3F93#code",
-    arb: "https://sepolia.arbiscan.io/address/0x349F514332127e2a81329E5Cc08bb5BFa07cE35E#code",
-    base: "https://sepolia.basescan.org/address/0x1Cb491B7EE9b21478CD41A2CF25937e7262B1a76#code",
+    eth: "https://sepolia.etherscan.io/address/0x60570F2DeA11A09B5c6411A8f48017F50eFc4D6C#code",
+    arb: "https://sepolia.arbiscan.io/address/0x1b45Da2D95ad8180D60616b668F44AC8dc457504#code",
+    base: "https://sepolia.basescan.org/address/0xD912e777811238F14106F4Fb161230Bb182dAF4e#code",
   },
   {
     name: "Z0tzPrivateLedgerVault",
     description: "Holds the FHERC20 wrap · shield / unshield entry point",
-    eth: "https://sepolia.etherscan.io/address/0x581009dfa2a80e2782920D54F36c81C32d5AcCA2#code",
-    arb: "https://sepolia.arbiscan.io/address/0xbBCb656683fea9691BcC267cb98abB6e1E4ccB5B#code",
-    base: "https://sepolia.basescan.org/address/0x8cB140197eA7C2B7Ba0825a6280dea85D488ee0a#code",
+    eth: "https://sepolia.etherscan.io/address/0x763BC9f2F6520E92B4D56622F55F370D3bF1bF3F#code",
+    arb: "https://sepolia.arbiscan.io/address/0x2B147275C63aFDF8583A4bce53c49100fE171CAC#code",
+    base: "https://sepolia.basescan.org/address/0x308fbdc8aaD5e5Ee470Adb1A89072a31CbDa3829#code",
   },
   {
     name: "Z0tzPrivateSweeperV2 · V6.5.2",
     description: "Multi-sweep sweepNonceV2 · 1% fee · one mint/burn point for the ledger",
-    eth: "https://sepolia.etherscan.io/address/0x9A5bFF0bc65f4c187b21a5106ff510246c2FC8D2#code",
-    arb: "https://sepolia.arbiscan.io/address/0x8CdE363DEF2a26f9cc2fBb5bE47C019973c89b45#code",
-    base: "https://sepolia.basescan.org/address/0xA6692aBcCAC67DB64f7c93AA47fc9516DE7f5fcb#code",
+    eth: "https://sepolia.etherscan.io/address/0x9BA45877b983a0c704dA37b50cd5e746e66E5F66#code",
+    arb: "https://sepolia.arbiscan.io/address/0x0fb0CC4eedfA2f93729cD16Cd2F553A617e56D5A#code",
+    base: "https://sepolia.basescan.org/address/0xF1368C62986F1681aEb370E796cdcf8f18635E8c#code",
   },
   {
     name: "FHERC20WrappedERC20 (USDC wrap)",
     description: "Fhenix official encrypted ERC-20 wrap · shielded USDC lives here",
-    eth: "https://sepolia.etherscan.io/address/0xb2ffb39815B73c1384466a2C61D75da0F819130C#code",
-    arb: "https://sepolia.arbiscan.io/address/0x61AD2081D24BfEB86434FB71FeC52c191c7A33d5#code",
-    base: "https://sepolia.basescan.org/address/0xc74F97F70A0F9CB29143443e85843bfd22eB1613#code",
+    eth: "https://sepolia.etherscan.io/address/0x9aBE44788694C114DA14abb4765F0B76b162DD6F#code",
+    arb: "https://sepolia.arbiscan.io/address/0xF336F0C79A462051d07aD7e795Cc83e9e5E5eB61#code",
+    base: "https://sepolia.basescan.org/address/0x9958E68b93a40035Cfc82d801818B8269282e191#code",
   },
   {
     name: "Z0tzPaymaster",
     description: "Sponsors smart-account deploys and chain transitions",
-    eth: "https://sepolia.etherscan.io/address/0xeBBb05403B96279a269F26C5F7BFa6BCf39d4cF7#code",
-    arb: "https://sepolia.arbiscan.io/address/0x2cb622CfcC23E7CC453DD806b9A47FE2416BA2CF#code",
-    base: "https://sepolia.basescan.org/address/0x79a7e7c6bdF5DEC837de87d3043F92381Eb9aE22#code",
+    eth: "https://sepolia.etherscan.io/address/0x4bcb7C436A479909E32Cb699B4901246ECffD064#code",
+    arb: "https://sepolia.arbiscan.io/address/0xA0aC4aBa7CD26f72C9D4b3979Fe8555e95E3667A#code",
+    base: "https://sepolia.basescan.org/address/0x06251350e80b13B460e7A8e7AAaceEc960c71179#code",
   },
   {
     name: "Z0tzAccountFactory",
     description: "CREATE2 · P-256 passkey owner · RIP-7212 on-chain verify",
-    eth: "https://sepolia.etherscan.io/address/0x5Fa5dB190ec8978472CD1357de905F961f0518bC#code",
-    arb: "https://sepolia.arbiscan.io/address/0x5D40769712F945831e6E338b5e3C628A926520Ae#code",
-    base: "https://sepolia.basescan.org/address/0xbD998e232226158B194644B0b72B94C0F0C80C86#code",
+    eth: "https://sepolia.etherscan.io/address/0x68f673159Ca6791Fd90a9abc183dcf85caD5B431#code",
+    arb: "https://sepolia.arbiscan.io/address/0xeb571Fb31DcB7713bf83CdcF137003c852089eE8#code",
+    base: "https://sepolia.basescan.org/address/0xe67471E72647E6088791a0f752628D910Dc4D94b#code",
   },
   {
     name: "Circle USDC (underlying)",
@@ -74,6 +74,146 @@ const contracts = [
     base: "https://sepolia.basescan.org/address/0xc2b78104907F722DABAc4C69f826a522B2754De4#code",
   },
 ]
+
+/**
+ * Wave 3 — Tezcatli composition: confidential DeFi vaults plus the
+ * `Z0tzComplianceGate` (KYC registry + OFAC oracle + depositor registry).
+ * Source-of-truth: contracts/deployments/fullstack-{chainId}.json + defi-vaults.json.
+ *
+ * The Aave V3 strategy adapter is only deployed on arb-sepolia (Aave V3 is not
+ * present on the other two testnets); base + eth show the vault skeleton with
+ * the strategy slot empty.
+ */
+const tezcatliContracts = [
+  {
+    name: "Z0tzComplianceGate",
+    description: "FHEIP-0010 predicate · canShield / canUnshield with typed reason codes",
+    eth: "https://sepolia.etherscan.io/address/0x8575E390aA8052d32A3208199B2b0f494c943420#code",
+    arb: "https://sepolia.arbiscan.io/address/0xe08942c436874411161Fe76E628C91Daf9e2dcd6#code",
+    base: "https://sepolia.basescan.org/address/0x850ab4D863ab20c6F5494D337F08887DC9148013#code",
+  },
+  {
+    name: "KYC Registry",
+    description: "Yes/no oracle with optional expiry — no PII, no documents on chain",
+    eth: "https://sepolia.etherscan.io/address/0x544C8a38b7Ef4fbc5a88D24ea6F798B9dc5A139C#code",
+    arb: "https://sepolia.arbiscan.io/address/0xBb7948e571996EBA66f949059dA7ad91868CD0aa#code",
+    base: "https://sepolia.basescan.org/address/0xf93CF605Ec9cCFC42e08DCD9598B606feF754873#code",
+  },
+  {
+    name: "OFAC Sanctions Oracle",
+    description: "Block-list consulted before the gate's own deny-list",
+    eth: "https://sepolia.etherscan.io/address/0x7Bb1370bf477B3FbB15Fa0C69410459991F09f98#code",
+    arb: "https://sepolia.arbiscan.io/address/0x27c2209950de1bef0e33C0509542700bB63F74d6#code",
+    base: "https://sepolia.basescan.org/address/0x2D3D962e69C38D36729294A55933AFcC108a2d26#code",
+  },
+  {
+    name: "Z0tzDepositorRegistry",
+    description: "Append-only audit trail · every screened depositor · used by canUnshield",
+    eth: "https://sepolia.etherscan.io/address/0x0596de86a8E9CEFe45b62d6a3610a55eC5f29023#code",
+    arb: "https://sepolia.arbiscan.io/address/0xDEB54DB41b77143B3Eb96e12c38411D42DBa6B46#code",
+    base: "https://sepolia.basescan.org/address/0xaDdF6aA9df9B99b013a35E44eABD6240ceDC4ba5#code",
+  },
+  {
+    name: "TezcatliConfidentialVault",
+    description: "Active vault · share/asset accounting on euint64 handles",
+    eth: "https://sepolia.etherscan.io/address/0xA90957B6D8475c09906Cd91735995D222ea78F40#code",
+    arb: "https://sepolia.arbiscan.io/address/0x90638B32b20e7BeDdb5AEFD745bF7a86b78a5A78#code",
+    base: "https://sepolia.basescan.org/address/0x1Bc118f117dC7D75603ab4CD11B6904Be0df4623#code",
+  },
+  {
+    name: "TezcatliConfidentialVaultFactory",
+    description: "Deploys vault instances per asset · registered vaults read from here",
+    eth: "https://sepolia.etherscan.io/address/0x4eA32dEb7EB710981C14eb71ff2afCCbC0849FfE#code",
+    arb: "https://sepolia.arbiscan.io/address/0xf93CF605Ec9cCFC42e08DCD9598B606feF754873#code",
+    base: "https://sepolia.basescan.org/address/0xA9d7BCd5651Ca187D631409812841498e8971b63#code",
+  },
+  {
+    name: "tzcUSDC (TezcatliWrappedToken)",
+    description: "FHERC-20 wrapper around USDC · the vault accepts ciphertext deposits via this boundary",
+    eth: "https://sepolia.etherscan.io/address/0xa6f051D55Af5AF7F39643064A41ACEC355Aa9A71#code",
+    arb: "https://sepolia.arbiscan.io/address/0x14655ba23f11FAaBd310703CAc387a69429cb7C8#code",
+    base: "https://sepolia.basescan.org/address/0xeb571Fb31DcB7713bf83CdcF137003c852089eE8#code",
+  },
+  {
+    name: "TezcatliStrategyRiskPolicy",
+    description: "Caps maxAllocationBps per strategy · enforced on every deploy call",
+    eth: "https://sepolia.etherscan.io/address/0x1b697D1950961d03ed09Bb9D5199a69923F7Ae6C#code",
+    arb: "https://sepolia.arbiscan.io/address/0x2D3D962e69C38D36729294A55933AFcC108a2d26#code",
+    base: "https://sepolia.basescan.org/address/0xC86B11268A9e617d3Fc17FcE2150ce17132285cc#code",
+  },
+  {
+    name: "TezcatliStrategyAdapterAaveV3",
+    description: "Active on arb-sepolia only · pulls idle USDC into Aave V3 aTokens",
+    eth: null,
+    arb: "https://sepolia.arbiscan.io/address/0xfE573D24eca408B9c5fCf066f66BB57081777A55#code",
+    base: null,
+  },
+]
+
+interface ContractRow {
+  name: string
+  description: string
+  eth: string | null
+  arb: string | null
+  base: string | null
+}
+
+function ContractTable({ rows }: { rows: ContractRow[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border border-foreground text-sm">
+        <thead>
+          <tr className="border-b border-foreground">
+            <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground">
+              Contract
+            </th>
+            <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground hidden md:table-cell">
+              Description
+            </th>
+            <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
+              Eth
+            </th>
+            <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
+              Arb
+            </th>
+            <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
+              Base
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => (
+            <tr
+              key={c.name}
+              className="border-b border-foreground/20 transition-colors hover:bg-foreground/5"
+            >
+              <td className="p-3 font-medium text-foreground">{c.name}</td>
+              <td className="p-3 text-muted-foreground hidden md:table-cell">
+                {c.description}
+              </td>
+              {(["eth", "arb", "base"] as const).map((chain) => (
+                <td key={chain} className="p-3 text-center">
+                  {c[chain] ? (
+                    <a
+                      href={c[chain] as string}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-foreground hover:underline"
+                    >
+                      view
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground/40">—</span>
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 export function ContractsSection() {
   const { ref, revealed } = useScrollReveal()
@@ -112,77 +252,12 @@ export function ContractsSection() {
 
         {/* Full contract list — expandable */}
         <Expandable
-          title="All contract addresses across three chains"
-          summary="Click any row to open the verified source on its chain explorer."
-          moreLabel="see the full address list"
-          lessLabel="hide the address list"
+          title="V6.5 core contracts"
+          summary="Ledger, vault, sweeper, paymaster, account factory, FHERC-20 wrapper, USDC, CCTP, P-256 verifier — across Eth / Arb / Base Sepolia."
+          moreLabel="see the V6.5 address list"
+          lessLabel="hide the V6.5 address list"
         >
-          <div className="overflow-x-auto">
-            <table className="w-full border border-foreground text-sm">
-              <thead>
-                <tr className="border-b border-foreground">
-                  <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground">
-                    Contract
-                  </th>
-                  <th className="text-left p-3 uppercase tracking-wider font-bold text-foreground hidden md:table-cell">
-                    Description
-                  </th>
-                  <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
-                    Eth
-                  </th>
-                  <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
-                    Arb
-                  </th>
-                  <th className="text-center p-3 uppercase tracking-wider font-bold text-foreground">
-                    Base
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {contracts.map((c) => (
-                  <tr
-                    key={c.name}
-                    className="border-b border-foreground/20 transition-colors hover:bg-foreground/5"
-                  >
-                    <td className="p-3 font-medium text-foreground">{c.name}</td>
-                    <td className="p-3 text-muted-foreground hidden md:table-cell">
-                      {c.description}
-                    </td>
-                    <td className="p-3 text-center">
-                      <a
-                        href={c.eth}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-foreground hover:underline"
-                      >
-                        view
-                      </a>
-                    </td>
-                    <td className="p-3 text-center">
-                      <a
-                        href={c.arb}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-foreground hover:underline"
-                      >
-                        view
-                      </a>
-                    </td>
-                    <td className="p-3 text-center">
-                      <a
-                        href={c.base}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-foreground hover:underline"
-                      >
-                        view
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ContractTable rows={contracts} />
 
           <p className="text-center text-muted-foreground text-sm mt-6">
             EntryPoint v0.8:{" "}
@@ -198,6 +273,26 @@ export function ContractsSection() {
             addresses from Circle, same on all supported chains.
           </p>
         </Expandable>
+
+        {/* Tezcatli composition (Wave 3) — compliance + DeFi */}
+        <div className="mt-6">
+          <Expandable
+            title="Tezcatli composition (Wave 3)"
+            summary="Confidential DeFi vaults plus the on-chain compliance gate (KYC registry + OFAC oracle + depositor registry). Aave V3 strategy live on Arb Sepolia."
+            moreLabel="see the Tezcatli address list"
+            lessLabel="hide the Tezcatli address list"
+          >
+            <ContractTable rows={tezcatliContracts} />
+
+            <p className="text-center text-muted-foreground text-sm mt-6">
+              Compliance gate is consulted at every shield / unshield via{" "}
+              <span className="text-foreground">eth_call</span> before any gas burns. Default-permissive
+              on testnet (<span className="text-foreground">enabled = false</span>); production flips to
+              enforced KYC + OFAC with one admin tx. Aave V3 adapter is only on arb-sepolia — base and
+              eth ship the vault skeleton with the strategy slot empty.
+            </p>
+          </Expandable>
+        </div>
       </div>
       </div>
     </section>
