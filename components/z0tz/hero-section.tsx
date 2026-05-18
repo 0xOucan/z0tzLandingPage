@@ -27,7 +27,9 @@ export function HeroSection() {
           Z0tz
         </h1>
         <p className="text-xl md:text-2xl text-foreground mb-6 animate-fade-in-up animation-delay-100">
-          Confidentiality in a frictionless experience.
+          Confidential, gasless stablecoins
+          <br className="hidden md:block" />
+          for individuals and institutions.
         </p>
         <p className="text-base md:text-lg text-muted-foreground mb-10 animate-fade-in-up animation-delay-200 max-w-2xl mx-auto">
           One passkey. Encrypted balances. Gasless from minute one. The
