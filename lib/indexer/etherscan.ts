@@ -11,7 +11,11 @@
  */
 
 const ETHERSCAN_V2_BASE = "https://api.etherscan.io/v2/api";
-const MIN_GAP_MS = 200; // 5 req/sec free-tier ceiling
+// Etherscan V2 free tier = 5 req/sec. 120ms ≈ 8 req/sec which exceeds
+// the cap on paper, but rate-limit responses are retried with backoff
+// so we naturally settle near the ceiling without burning the function
+// budget on artificial waits.
+const MIN_GAP_MS = 120;
 
 let lastCallTs = 0;
 

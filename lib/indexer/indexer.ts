@@ -37,10 +37,13 @@ import {
 import { getLogsPaginated, isConfigured as etherscanConfigured, type EtherscanLog } from "./etherscan";
 import { client, ensureSchema, getLastScanBlock, setScanState } from "./turso";
 
-// 200K blocks per scan chunk. With Etherscan's 1000-log cap that gives us
-// pagination room for high-volume contracts like USDC; for our 5 sources
-// it's typically 1-2 pages per chunk.
-const CHUNK_SIZE = 200_000;
+// 1M blocks per scan chunk. Etherscan getLogs returns up to 1000 logs per
+// call regardless of block range, so for our narrow Z0tz-contract filters
+// (typically 0-100 events per 1M blocks of arb) we get away with one
+// call per chunk. Smaller chunks just multiply the rate-limited Etherscan
+// calls without improving coverage, which is what was causing 60s
+// function-timeout on the first backfill.
+const CHUNK_SIZE = 1_000_000;
 
 // ─── Topic0 hashes ─────────────────────────────────────────────────────
 // Pre-computed so we don't recompute on every call.
@@ -412,23 +415,40 @@ export async function indexSource(opts: {
   }
 
   const deadline = opts.maxMs ? Date.now() + opts.maxMs : Number.POSITIVE_INFINITY;
+  const t0 = Date.now();
   let cursor = fromBlock;
   let inserted = 0;
   let truncated = false;
 
+  console.info(
+    `[indexer] start ${opts.sourceKey} chain=${opts.chainId} from=${fromBlock} head=${head} budgetMs=${opts.maxMs ?? "∞"}`
+  );
+
   while (cursor <= head) {
     if (Date.now() > deadline) {
       truncated = true;
+      console.warn(
+        `[indexer] DEADLINE ${opts.sourceKey} cursor=${cursor} head=${head} after=${Date.now() - t0}ms inserted=${inserted}`
+      );
       break;
     }
     const chunkEnd = Math.min(cursor + CHUNK_SIZE - 1, head);
+    const chunkStart = Date.now();
     const logs = await getLogsPaginated({
       chainId: opts.chainId,
       address: contract,
       fromBlock: cursor,
       toBlock: chunkEnd,
       topic0: source.topic0,
+      // Tight per-chunk page cap so a single pathological chunk can't
+      // exhaust the function budget all by itself. 5 pages × 1000 logs
+      // is plenty for any one chunk of Z0tz events; if a Z0tz contract
+      // ever emits >5K logs in 1M blocks we'd want to revisit anyway.
+      maxPages: 5,
     });
+    console.info(
+      `[indexer] chunk ${opts.sourceKey} ${cursor}-${chunkEnd} took ${Date.now() - chunkStart}ms (${logs?.length ?? "null"} logs)`
+    );
     if (logs === null) {
       // Etherscan failure — break and report progress; next trigger retries.
       truncated = true;
