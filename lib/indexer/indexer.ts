@@ -73,6 +73,16 @@ type EventSource = {
   abi: AbiEvent;
   topic0: string;
   insert: (chainId: ChainId, log: EtherscanLog) => Promise<void>;
+  /**
+   * Optional indexed-topic filter beyond topic0. For EntryPoint we want
+   * to filter by paymaster (topic3) so we only see Z0tz-sponsored
+   * UserOps. Function receives the chain so it can resolve a per-chain
+   * filter value. Return undefined to disable extra filtering.
+   */
+  extraTopic?: {
+    topicIndex: 1 | 2 | 3;
+    valueFor: (chainId: ChainId) => `0x${string}` | undefined;
+  };
 };
 
 function hexToBig(hex: string): bigint {
@@ -87,18 +97,24 @@ function topicToAddress(topic: string): string {
   return "0x" + topic.slice(-40).toLowerCase();
 }
 
-// EntryPoint is intentionally NOT in this default list. The contract sees
-// EVERY UserOp from every wallet on the chain (~5K logs per 1M arb blocks),
-// and indexing all of them blew the Vercel 60s function budget. The GUI's
-// stitching code doesn't actually need EntryPoint events to reconstruct
-// history — Ledger.Spent tells us the same thing from the application
-// layer. Caller can still include it explicitly by passing
-// `sourceKeys: [...defaults, "EntryPoint.UserOperationEvent"]`.
-const _ENTRYPOINT_SOURCE: EventSource = {
+// EntryPoint with paymaster filter — UserOperationEvent's topic3 is the
+// paymaster address. Filtering by Z0tz's paymaster narrows from "every
+// UserOp on chain" (~5K/1M blocks on base) down to "only Z0tz-sponsored
+// ops" (~10-100/1M blocks). That's tractable for indexing.
+const ENTRYPOINT_USEROP_SOURCE: EventSource = {
   key: "EntryPoint.UserOperationEvent",
   contractFor: (c) => resolveChainContracts(c).entryPoint,
   abi: ENTRYPOINT_USEROP_EVENT,
   topic0: TOPIC0.entrypointUserOp,
+  extraTopic: {
+    topicIndex: 3,
+    valueFor: (c) => {
+      const pm = resolveChainContracts(c).paymaster;
+      if (!pm) return undefined;
+      // Zero-pad address to 32 bytes for topic encoding.
+      return ("0x" + pm.toLowerCase().slice(2).padStart(64, "0")) as `0x${string}`;
+    },
+  },
     insert: async (chainId, log) => {
       const decoded = decodeEventLog({
         abi: [ENTRYPOINT_USEROP_EVENT],
@@ -131,6 +147,7 @@ const _ENTRYPOINT_SOURCE: EventSource = {
 };
 
 const SOURCES: EventSource[] = [
+  ENTRYPOINT_USEROP_SOURCE,
   {
     key: "AccountFactory.AccountCreated",
     contractFor: (c) => resolveChainContracts(c).accountFactory,
@@ -431,20 +448,19 @@ export async function indexSource(opts: {
     }
     const chunkEnd = Math.min(cursor + CHUNK_SIZE - 1, head);
     const chunkStart = Date.now();
+    const extraTopicVal = source.extraTopic?.valueFor(opts.chainId);
     const logs = await getLogsPaginated({
       chainId: opts.chainId,
       address: contract,
       fromBlock: cursor,
       toBlock: chunkEnd,
       topic0: source.topic0,
-      // Tight per-chunk page cap so a single pathological chunk can't
-      // exhaust the function budget all by itself. 5 pages × 1000 logs
-      // is plenty for any one chunk of Z0tz events; if a Z0tz contract
-      // ever emits >5K logs in 1M blocks we'd want to revisit anyway.
+      // Pass the source's optional indexed-topic filter. For EntryPoint
+      // this narrows to UserOps sponsored by our paymaster only.
+      ...(extraTopicVal && source.extraTopic
+        ? { [`topic${source.extraTopic.topicIndex}`]: extraTopicVal }
+        : {}),
       maxPages: 5,
-      // Hard deadline propagated so getLogsPaginated bails between
-      // pages once we're past the function budget — without this, a
-      // single 8-page chunk could spend the entire 60s ceiling.
       deadline,
     });
     console.info(

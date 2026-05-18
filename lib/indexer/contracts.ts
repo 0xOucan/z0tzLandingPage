@@ -67,6 +67,10 @@ export type ChainContracts = {
   sweeper?: Address;
   ledger?: Address;
   vault?: Address;
+  /** Z0tz paymaster on this chain. Used as topic3 filter on EntryPoint
+   * UserOperationEvent so we only index Z0tz-sponsored UserOps, not
+   * every UserOp from every wallet on the chain. */
+  paymaster?: Address;
 };
 
 /**
@@ -95,6 +99,7 @@ export function loadChainContracts(chainId: ChainId): ChainContracts {
   const sweeper = process.env[`INDEXER_SWEEPER_ADDRESS_${chainId}`];
   const ledger = process.env[`INDEXER_LEDGER_ADDRESS_${chainId}`];
   const vault = process.env[`INDEXER_VAULT_ADDRESS_${chainId}`];
+  const paymaster = process.env[`INDEXER_PAYMASTER_ADDRESS_${chainId}`];
   return {
     chainId,
     network: CHAIN_NETWORK[chainId],
@@ -103,6 +108,7 @@ export function loadChainContracts(chainId: ChainId): ChainContracts {
     sweeper: sweeper ? (sweeper as Address) : undefined,
     ledger: ledger ? (ledger as Address) : undefined,
     vault: vault ? (vault as Address) : undefined,
+    paymaster: paymaster ? (paymaster as Address) : undefined,
   };
 }
 
@@ -118,6 +124,7 @@ export const STATIC_TESTNET_ADDRESSES: Record<ChainId, Partial<ChainContracts>> 
     sweeper: "0xF1368C62986F1681aEb370E796cdcf8f18635E8c",
     ledger: "0xD912e777811238F14106F4Fb161230Bb182dAF4e",
     vault: "0x308fbdc8aaD5e5Ee470Adb1A89072a31CbDa3829",
+    paymaster: "0x3B2D8943242e6a9c51D680923a8Abe6c8cF3d280",
   },
   11155111: {
     entryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
@@ -125,6 +132,7 @@ export const STATIC_TESTNET_ADDRESSES: Record<ChainId, Partial<ChainContracts>> 
     sweeper: "0x9BA45877b983a0c704dA37b50cd5e746e66E5F66",
     ledger: "0x60570F2DeA11A09B5c6411A8f48017F50eFc4D6C",
     vault: "0x763BC9f2F6520E92B4D56622F55F370D3bF1bF3F",
+    paymaster: "0x372149B18f79BCEDe22633bFCFed9D2e4BB764C4",
   },
   421614: {
     entryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
@@ -132,6 +140,7 @@ export const STATIC_TESTNET_ADDRESSES: Record<ChainId, Partial<ChainContracts>> 
     sweeper: "0x0fb0CC4eedfA2f93729cD16Cd2F553A617e56D5A",
     ledger: "0x1b45Da2D95ad8180D60616b668F44AC8dc457504",
     vault: "0x2B147275C63aFDF8583A4bce53c49100fE171CAC",
+    paymaster: "0xB223B4386157797c8d33CC2e308BcD932bf48B5d",
   },
 };
 
