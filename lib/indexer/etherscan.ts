@@ -112,6 +112,20 @@ export async function getLogs(params: {
   if (params.topic1) qs.set("topic1", params.topic1);
   if (params.topic2) qs.set("topic2", params.topic2);
   if (params.topic3) qs.set("topic3", params.topic3);
+  // Etherscan V2 quirk: without explicit AND operators, multiple topic
+  // params are ignored beyond topic0 — the response is filtered by topic0
+  // alone, returning EVERY event of that signature chain-wide. We saw this
+  // burn: a Z0tz paymaster filter on EntryPoint silently fell through and
+  // pulled 4855 unrelated UserOps in 14 days of base-sepolia.
+  // Setting topic0_X_opr=and for every supplied additional topic forces
+  // the intended AND-join. Order matters per Etherscan docs (lower index
+  // first).
+  if (params.topic0 && params.topic1) qs.set("topic0_1_opr", "and");
+  if (params.topic0 && params.topic2) qs.set("topic0_2_opr", "and");
+  if (params.topic0 && params.topic3) qs.set("topic0_3_opr", "and");
+  if (params.topic1 && params.topic2) qs.set("topic1_2_opr", "and");
+  if (params.topic1 && params.topic3) qs.set("topic1_3_opr", "and");
+  if (params.topic2 && params.topic3) qs.set("topic2_3_opr", "and");
   const data = await fetchV2(`${ETHERSCAN_V2_BASE}?${qs.toString()}`);
   if (!data) return null;
   // Etherscan returns:
