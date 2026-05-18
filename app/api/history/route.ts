@@ -166,107 +166,119 @@ async function handle(req: NextRequest) {
     ledgerEvents = res.rows.map(rowToObj);
   }
 
-  // ─── 5. Vault.TransferredOut where to ∈ stealths ∪ smartAccounts ────
+  // ─── 5. Vault.TransferredOut: TRANSITIVELY EXPANDED ─────────────────
+  // The protocol creates ephemeral stealths during cashouts that aren't
+  // derivable from passkey alone. They appear as vault_transferred_out.to_address
+  // in the same tx as the user's Ledger.Spent. Pull rows TWO ways:
+  //   (a) to_address ∈ user's passkey-derived set (direct deposits)
+  //   (b) tx_hash matches one of user's ledger.Spent/Rotated txs
+  // Either qualifies the row as user-controlled; the to_addresses from
+  // (b) become "ephemeral" addresses that subsequent queries treat as
+  // ours.
   let vaultTransfers: any[] = [];
-  const recipients = Array.from(new Set([...stealths, ...smartAccounts]));
-  if (recipients.length > 0) {
+  const directRecipients = Array.from(new Set([...stealths, ...smartAccounts]));
+  if (directRecipients.length > 0) {
     const chainPh = chainIds.map(() => "?").join(",");
-    const rPh = recipients.map(() => "?").join(",");
+    const rPh = directRecipients.map(() => "?").join(",");
     const res = await client().execute({
       sql: `SELECT * FROM vault_transferred_out
             WHERE chain_id IN (${chainPh}) AND to_address IN (${rPh})
             ORDER BY block_number DESC`,
-      args: [...chainIds, ...recipients],
+      args: [...chainIds, ...directRecipients],
     });
-    vaultTransfers = res.rows.map(rowToObj);
+    vaultTransfers.push(...res.rows.map(rowToObj));
   }
+  const ledgerSpendTxs = Array.from(
+    new Set(
+      ledgerEvents
+        .filter((e: any) => e.event_name === "Spent" || e.event_name === "Rotated")
+        .map((e: any) => e.tx_hash as string)
+    )
+  );
+  if (ledgerSpendTxs.length > 0) {
+    const chainPh = chainIds.map(() => "?").join(",");
+    const tPh = ledgerSpendTxs.map(() => "?").join(",");
+    const res = await client().execute({
+      sql: `SELECT * FROM vault_transferred_out
+            WHERE chain_id IN (${chainPh}) AND tx_hash IN (${tPh})
+            ORDER BY block_number DESC`,
+      args: [...chainIds, ...ledgerSpendTxs],
+    });
+    const seenVt = new Set(
+      vaultTransfers.map((v: any) => `${v.chain_id}:${v.tx_hash}:${v.log_index}`)
+    );
+    for (const r of res.rows.map(rowToObj)) {
+      const k = `${r.chain_id}:${r.tx_hash}:${r.log_index}`;
+      if (!seenVt.has(k)) {
+        vaultTransfers.push(r);
+        seenVt.add(k);
+      }
+    }
+  }
+  // Ephemeral set: every vault_transferred_out.to_address that just
+  // surfaced. These are one-shot Z0tz-protocol-controlled addresses that
+  // belong to the user even though the passkey didn't derive them.
+  const ephemerals = Array.from(
+    new Set(vaultTransfers.map((v: any) => (v.to_address as string).toLowerCase()))
+  );
 
-  // ─── 6. USDC.Transfer touching our address set (followup-scanner data) ─
-  // We pull where from ∈ our addrs (outgoing — cashout counterparty,
-  // smart-account spends) OR to ∈ our addrs (incoming — top-ups, mints).
-  // The followup scanner only indexes "from" today, but the schema
-  // accommodates both so future ingestion expansion works without
-  // touching this query.
-  let usdcTransfers: any[] = [];
-  const allAddrs = Array.from(new Set([...stealths, ...smartAccounts]));
+  // Working set used by every subsequent query.
+  const allAddrs = Array.from(new Set([...stealths, ...smartAccounts, ...ephemerals]));
+
+  // ─── 6. CCTP burns: depositor OR mint_recipient ∈ allAddrs ─────────
+  // The depositor side captures user-initiated bridges (the burn-emitting
+  // chain). The mint_recipient side captures bridges *into* one of our
+  // addresses on the dst chain — typical for cross-chain DeFi deposits
+  // where the burn depositor is an ephemeral we may not have already
+  // discovered. mint_recipient is stored as 32-byte hex; match the low
+  // 20 bytes against our address (without 0x prefix, lowercased).
+  let cctpBurns: any[] = [];
   if (allAddrs.length > 0) {
     const chainPh = chainIds.map(() => "?").join(",");
     const aPh = allAddrs.map(() => "?").join(",");
+    const aRaw = allAddrs.map((a) => a.replace(/^0x/, ""));
+    const rPh = aRaw.map(() => "?").join(",");
+    const res = await client().execute({
+      sql: `SELECT * FROM cctp_burns
+            WHERE chain_id IN (${chainPh})
+              AND (depositor IN (${aPh}) OR lower(substr(mint_recipient, -40)) IN (${rPh}))
+            ORDER BY block_number DESC`,
+      args: [...chainIds, ...allAddrs, ...aRaw],
+    });
+    cctpBurns = res.rows.map(rowToObj);
+  }
+
+  // Pull every recipient + depositor we now know about — burns matched
+  // via mint_recipient reveal a depositor we hadn't seen (the ephemeral
+  // that signed the burn on the src chain). Both sides go into the
+  // final address set so the USDC query catches all related transfers.
+  const burnRecipients = cctpBurns
+    .map((b: any) => {
+      const r = (b.mint_recipient as string) ?? "";
+      return r.length >= 42 ? "0x" + r.slice(-40).toLowerCase() : null;
+    })
+    .filter((r): r is string => !!r);
+  const burnDepositors = cctpBurns.map((b: any) => (b.depositor as string).toLowerCase());
+  const finalAddrs = Array.from(
+    new Set([...allAddrs, ...burnRecipients, ...burnDepositors])
+  );
+
+  // ─── 7. USDC.Transfer with the fully-expanded address set ──────────
+  // Catches every USDC flow touching a user-controlled address: passkey-
+  // derived, ephemeral cashout stealth, CCTP burn depositor on src,
+  // CCTP mint recipient on dst.
+  let usdcTransfers: any[] = [];
+  if (finalAddrs.length > 0) {
+    const chainPh = chainIds.map(() => "?").join(",");
+    const aPh = finalAddrs.map(() => "?").join(",");
     const res = await client().execute({
       sql: `SELECT * FROM usdc_transfers
             WHERE chain_id IN (${chainPh})
               AND (from_address IN (${aPh}) OR to_address IN (${aPh}))
             ORDER BY block_number DESC`,
-      args: [...chainIds, ...allAddrs, ...allAddrs],
+      args: [...chainIds, ...finalAddrs, ...finalAddrs],
     });
     usdcTransfers = res.rows.map(rowToObj);
-  }
-
-  // ─── 7. CCTP burns where depositor ∈ our address set ────────────────
-  // Returns mint_recipient too so the GUI can stitch dst-chain mint by
-  // looking up the recipient in another chain's usdc_transfers.
-  let cctpBurns: any[] = [];
-  if (allAddrs.length > 0) {
-    const chainPh = chainIds.map(() => "?").join(",");
-    const aPh = allAddrs.map(() => "?").join(",");
-    const res = await client().execute({
-      sql: `SELECT * FROM cctp_burns
-            WHERE chain_id IN (${chainPh}) AND depositor IN (${aPh})
-            ORDER BY block_number DESC`,
-      args: [...chainIds, ...allAddrs],
-    });
-    cctpBurns = res.rows.map(rowToObj);
-  }
-
-  // ─── 8. Second-pass usdc_transfers for bridge mint_recipients ──────
-  // Every CCTP burn in step 7 names a dst-chain mint_recipient that
-  // received the bridged USDC. That recipient address isn't typically in
-  // the passkey-derived set (it's chosen at bridge time, encoded only on
-  // chain). To surface the dst-side receipt + any follow-on transfer,
-  // we extract recipients from cctpBurns, then run a second query on
-  // usdc_transfers across ALL chains touching those addresses. Returned
-  // alongside the primary usdcTransfers so the GUI can stitch by tx hash.
-  let dstSideTransfers: any[] = [];
-  if (cctpBurns.length > 0) {
-    const recipients = Array.from(
-      new Set(
-        cctpBurns
-          .map((b) => {
-            // mint_recipient is stored as 32-byte hex from the event;
-            // address lives in the low 20 bytes.
-            const r = (b.mint_recipient as string) ?? "";
-            return r.length >= 42 ? "0x" + r.slice(-40).toLowerCase() : null;
-          })
-          .filter((r): r is string => !!r)
-      )
-    );
-    if (recipients.length > 0) {
-      const chainPh = chainIds.map(() => "?").join(",");
-      const rPh = recipients.map(() => "?").join(",");
-      const res = await client().execute({
-        sql: `SELECT * FROM usdc_transfers
-              WHERE chain_id IN (${chainPh})
-                AND (from_address IN (${rPh}) OR to_address IN (${rPh}))
-              ORDER BY block_number DESC`,
-        args: [...chainIds, ...recipients, ...recipients],
-      });
-      dstSideTransfers = res.rows.map(rowToObj);
-    }
-  }
-
-  // Merge dst-side rows into the primary usdcTransfers array, dedup by
-  // (chain_id, tx_hash, log_index). The classifier on the GUI side
-  // doesn't care whether a row came from the passkey-set query or the
-  // bridge-recipient query — it just wants all the data.
-  const seen = new Set(
-    usdcTransfers.map((t) => `${t.chain_id}:${t.tx_hash}:${t.log_index}`)
-  );
-  for (const t of dstSideTransfers) {
-    const k = `${t.chain_id}:${t.tx_hash}:${t.log_index}`;
-    if (!seen.has(k)) {
-      usdcTransfers.push(t);
-      seen.add(k);
-    }
   }
 
   return NextResponse.json(
