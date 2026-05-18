@@ -42,6 +42,24 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
+  try {
+    return await handle(req);
+  } catch (err: any) {
+    // Surface the error to clients instead of swallowing it as a generic
+    // 500. The GUI's indexer-client logs the status code only — without
+    // the body we can't tell input-validation failures from real bugs.
+    console.error("[/api/history] error:", err);
+    return NextResponse.json(
+      {
+        error: "Internal error",
+        detail: String(err?.message ?? err).slice(0, 500),
+      },
+      { status: 500, headers: corsHeaders }
+    );
+  }
+}
+
+async function handle(req: NextRequest) {
   if (!isEnabled()) {
     return NextResponse.json(
       { error: "Indexer DB not configured" },
@@ -88,18 +106,20 @@ export async function POST(req: NextRequest) {
   if (body.ownerX && body.ownerY) {
     const ownerXNorm = normalizeBig(body.ownerX);
     const ownerYNorm = normalizeBig(body.ownerY);
-    const placeholders = chainIds.map(() => "?").join(",");
-    const res = await client().execute({
-      sql: `SELECT chain_id, account_address, owner_x, owner_y, block_number, block_timestamp, tx_hash
-            FROM smart_accounts
-            WHERE owner_x = ? AND owner_y = ?
-              AND chain_id IN (${placeholders})`,
-      args: [ownerXNorm, ownerYNorm, ...chainIds],
-    });
-    smartAccountRows = res.rows.map(rowToObj);
-    for (const r of smartAccountRows) {
-      const addr = (r.account_address as string).toLowerCase();
-      if (!smartAccounts.includes(addr)) smartAccounts.push(addr);
+    if (ownerXNorm !== null && ownerYNorm !== null) {
+      const placeholders = chainIds.map(() => "?").join(",");
+      const res = await client().execute({
+        sql: `SELECT chain_id, account_address, owner_x, owner_y, block_number, block_timestamp, tx_hash
+              FROM smart_accounts
+              WHERE owner_x = ? AND owner_y = ?
+                AND chain_id IN (${placeholders})`,
+        args: [ownerXNorm, ownerYNorm, ...chainIds],
+      });
+      smartAccountRows = res.rows.map(rowToObj);
+      for (const r of smartAccountRows) {
+        const addr = (r.account_address as string).toLowerCase();
+        if (!smartAccounts.includes(addr)) smartAccounts.push(addr);
+      }
     }
   }
 
@@ -219,13 +239,21 @@ export async function POST(req: NextRequest) {
  * Normalize a numeric input (hex or decimal string, or 0x-prefixed) to the
  * decimal string format we store in smart_accounts. We always store uint256
  * as decimal strings to keep the DB representation canonical.
+ *
+ * Accepts: string (hex or decimal). Anything else (Uint8Array serialized
+ * to an object-with-numeric-keys, number, undefined, etc) returns null
+ * instead of crashing — caller decides how to treat null (treat as
+ * missing input, not as an error).
  */
-function normalizeBig(input: string): string {
+function normalizeBig(input: unknown): string | null {
+  if (typeof input !== "string") return null;
   const s = input.trim();
-  if (s.startsWith("0x") || s.startsWith("0X")) {
+  if (!s) return null;
+  try {
     return BigInt(s).toString();
+  } catch {
+    return null;
   }
-  return BigInt(s).toString();
 }
 
 /** Convert a libsql Row to a plain JSON-able object. */
