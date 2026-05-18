@@ -10,6 +10,8 @@
  * advancing fromBlock to (lastLog.blockNumber + 1) until results are empty.
  */
 
+import { resolvePool } from "@/lib/relayer/rpc";
+
 const ETHERSCAN_V2_BASE = "https://api.etherscan.io/v2/api";
 // Etherscan V2 free tier = 5 req/sec. 120ms ≈ 8 req/sec which exceeds
 // the cap on paper, but rate-limit responses are retried with backoff
@@ -127,13 +129,140 @@ export async function getLogs(params: {
   if (params.topic1 && params.topic3) qs.set("topic1_3_opr", "and");
   if (params.topic2 && params.topic3) qs.set("topic2_3_opr", "and");
   const data = await fetchV2(`${ETHERSCAN_V2_BASE}?${qs.toString()}`);
-  if (!data) return null;
-  // Etherscan returns:
+  // Etherscan happy paths first.
   //   status=1, message=OK, result=[logs]   → normal success
   //   status=0, message=No records found, result=[] → empty result
   //   status=0, message=NOTOK, result="<error>" → error
-  if (data.status === "1" && Array.isArray(data.result)) return data.result;
-  if (data.status === "0" && Array.isArray(data.result)) return [];
+  if (data) {
+    if (data.status === "1" && Array.isArray(data.result)) return data.result;
+    if (data.status === "0" && Array.isArray(data.result)) return [];
+  }
+  // Etherscan failed (rate-limited / 5xx / parse error). Try the chain's
+  // RPC pool as a fallback. RPC eth_getLogs covers the same query but
+  // returns logs in JSON-RPC shape — we adapt them to EtherscanLog so the
+  // caller doesn't care about the data source.
+  return getLogsViaRpc(params);
+}
+
+/**
+ * RPC fallback for getLogs. Uses the indexer's chain pool (resolvePool)
+ * with manual rotation — calls each URL in order until one responds with
+ * a valid log array. Times out per URL on FETCH_TIMEOUT_MS.
+ *
+ * Adapts the response shape to EtherscanLog so the caller's decoder
+ * works on either source. Block timestamps aren't part of eth_getLogs,
+ * so we batch-fetch them with eth_getBlockByNumber(false) and stitch.
+ */
+async function getLogsViaRpc(params: {
+  chainId: number;
+  address: string;
+  fromBlock: number;
+  toBlock: number;
+  topic0?: string;
+  topic1?: string;
+  topic2?: string;
+  topic3?: string;
+}): Promise<EtherscanLog[] | null> {
+  const pool = resolvePool(params.chainId);
+  if (pool.length === 0) return null;
+  // viem's positional topics: [topic0, topic1, topic2, topic3]. RPCs expect
+  // null entries where a topic is unset. We emit only as many slots as the
+  // highest set topic; eth_getLogs treats absent trailing topics as "any".
+  const topics: (string | null)[] = [];
+  const set = [params.topic0, params.topic1, params.topic2, params.topic3];
+  let lastSet = -1;
+  for (let i = 0; i < 4; i++) if (set[i]) lastSet = i;
+  for (let i = 0; i <= lastSet; i++) topics.push(set[i] ?? null);
+
+  const body = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "eth_getLogs",
+    params: [
+      {
+        address: params.address,
+        fromBlock: "0x" + params.fromBlock.toString(16),
+        toBlock: "0x" + params.toBlock.toString(16),
+        ...(topics.length > 0 ? { topics } : {}),
+      },
+    ],
+  };
+
+  for (const url of pool) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+        signal: ctl.signal,
+      });
+      if (!res.ok) continue;
+      const j = await res.json();
+      if (!Array.isArray(j?.result)) continue;
+      const raw = j.result as Array<{
+        address: string;
+        topics: string[];
+        data: string;
+        blockNumber: string;
+        transactionHash: string;
+        logIndex: string;
+      }>;
+      // Get block timestamps. Etherscan includes them; RPCs don't. We need
+      // them for the indexer rows, so batch-fetch per unique block.
+      const uniqueBlocks = Array.from(new Set(raw.map((l) => l.blockNumber)));
+      const tsByBlock = new Map<string, string>();
+      if (uniqueBlocks.length > 0) {
+        // Use json-rpc batch (most public RPCs support batched requests)
+        // to fetch all blocks in one round-trip. If a node rejects the
+        // batch shape we fall through to per-block. Either way, every log
+        // gets a non-undefined timeStamp because we map missing values to
+        // "0x0".
+        try {
+          const batchRes = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(
+              uniqueBlocks.map((bn, i) => ({
+                jsonrpc: "2.0",
+                id: i + 1,
+                method: "eth_getBlockByNumber",
+                params: [bn, false],
+              }))
+            ),
+            cache: "no-store",
+            signal: ctl.signal,
+          });
+          if (batchRes.ok) {
+            const arr = await batchRes.json();
+            if (Array.isArray(arr)) {
+              for (let i = 0; i < arr.length; i++) {
+                const blk = arr[i]?.result;
+                if (blk?.timestamp) tsByBlock.set(uniqueBlocks[i], blk.timestamp);
+              }
+            }
+          }
+        } catch {
+          /* leave map empty — logs get "0x0" timestamps below */
+        }
+      }
+      return raw.map<EtherscanLog>((l) => ({
+        address: l.address,
+        topics: l.topics,
+        data: l.data,
+        blockNumber: l.blockNumber,
+        timeStamp: tsByBlock.get(l.blockNumber) ?? "0x0",
+        transactionHash: l.transactionHash,
+        logIndex: l.logIndex,
+      }));
+    } catch {
+      continue;
+    } finally {
+      clearTimeout(t);
+    }
+  }
   return null;
 }
 
