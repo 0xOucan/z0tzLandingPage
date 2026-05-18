@@ -480,9 +480,21 @@ export async function indexSource(opts: {
 }
 
 /**
- * Index all sources for one chain in series. Sources iterate sequentially
- * so a stuck source can't starve the others — each one reads its own
- * scan_state and advances independently.
+ * Index all sources for one chain in PARALLEL. Each source has its own
+ * scan_state row and an independent SQL table, so concurrent inserts
+ * don't conflict.
+ *
+ * Why parallel: the sequential version starved later sources. If
+ * EntryPoint.UserOperationEvent takes 50s of the 50s budget, the other
+ * 7 sources never run on that call — and the next trigger call resumes
+ * EntryPoint, so other sources stay starved forever.
+ *
+ * With parallel execution every source gets the same wall-clock budget
+ * and advances by however many chunks fit. Low-volume sources finish
+ * in seconds; high-volume ones get cut off and resume on the next call.
+ * Etherscan's per-IP rate limit is enforced by the in-process rate
+ * limiter in etherscan.ts, so parallel callers don't blow the cap —
+ * they just take turns through the gate.
  */
 export async function indexChain(opts: {
   chainId: ChainId;
@@ -491,21 +503,30 @@ export async function indexChain(opts: {
   sourceKeys?: string[]; // optional filter
 }): Promise<IndexResult[]> {
   const keys = opts.sourceKeys ?? SOURCES.map((s) => s.key);
-  const out: IndexResult[] = [];
-  const deadline = opts.maxMs ? Date.now() + opts.maxMs : Number.POSITIVE_INFINITY;
-  for (const key of keys) {
-    const remaining = Math.max(1000, deadline - Date.now());
-    out.push(
-      await indexSource({
+  // allSettled so one slow/erroring source can't reject the whole batch
+  // before others get to report their progress.
+  const settled = await Promise.allSettled(
+    keys.map((key) =>
+      indexSource({
         chainId: opts.chainId,
         sourceKey: key,
         startBlockFallback: opts.startBlockFallback,
-        maxMs: remaining,
+        maxMs: opts.maxMs,
       })
-    );
-    if (Date.now() > deadline) break;
-  }
-  return out;
+    )
+  );
+  return settled.map((r, i) =>
+    r.status === "fulfilled"
+      ? r.value
+      : {
+          chainId: opts.chainId,
+          source: keys[i],
+          scannedFrom: 0,
+          scannedTo: 0,
+          inserted: 0,
+          truncated: true,
+        }
+  );
 }
 
 /** Convenience helper for the trigger endpoint. */
