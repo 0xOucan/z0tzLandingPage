@@ -138,11 +138,18 @@ export async function getLogsPaginated(params: {
   topic2?: string;
   topic3?: string;
   maxPages?: number; // safety cap, default 50 = 50K logs per call
+  deadline?: number; // optional Date.now()-based hard exit
 }): Promise<EtherscanLog[] | null> {
   const maxPages = params.maxPages ?? 50;
   const all: EtherscanLog[] = [];
   let cursor = params.fromBlock;
   for (let i = 0; i < maxPages; i++) {
+    // Bail early if the function-budget deadline is past. Returning what
+    // we have so far + null cursor advance lets the caller persist
+    // partial scan_state and resume on the next trigger.
+    if (params.deadline !== undefined && Date.now() > params.deadline) {
+      return all;
+    }
     const page = await getLogs({ ...params, fromBlock: cursor });
     if (page === null) return null;
     if (page.length === 0) break;

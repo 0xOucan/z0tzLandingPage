@@ -445,6 +445,10 @@ export async function indexSource(opts: {
       // is plenty for any one chunk of Z0tz events; if a Z0tz contract
       // ever emits >5K logs in 1M blocks we'd want to revisit anyway.
       maxPages: 5,
+      // Hard deadline propagated so getLogsPaginated bails between
+      // pages once we're past the function budget — without this, a
+      // single 8-page chunk could spend the entire 60s ceiling.
+      deadline,
     });
     console.info(
       `[indexer] chunk ${opts.sourceKey} ${cursor}-${chunkEnd} took ${Date.now() - chunkStart}ms (${logs?.length ?? "null"} logs)`
