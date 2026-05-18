@@ -111,32 +111,34 @@ export async function POST(req: NextRequest) {
     results.push(...out);
   }
 
-  // Tier 2: stealth-followup scanner (USDC.Transfer + CCTP.DepositForBurn).
-  // Skipped if caller filtered Tier-1 sources or budget is already spent —
-  // followups depend on the watchlist that Tier 1 just populated, so it's
-  // fine to defer them to a subsequent trigger.
   const wantFollowups = !body.sourceKeys || body.sourceKeys.length === 0;
+
+  // Tier 3 BEFORE Tier 2: per-vault DeFi scanner. This is BOUNDED work
+  // (1-2 vaults × 2 directions per chain) — runs in ~5-10s total across
+  // all chains, even on a cold first scan. Putting it ahead of the
+  // followup pass guarantees vault data lands quickly. The followup pass
+  // (Tier 2) is the one that takes ~50s on busy chains and can hog the
+  // budget if it goes first.
+  const vaultResults: any[] = [];
+  if (wantFollowups) {
+    for (const chainId of chains) {
+      if (Date.now() > deadline) break;
+      // Cap per-chain vault budget at 10s so we don't starve Tier 2.
+      const remaining = Math.min(10_000, Math.max(2000, deadline - Date.now()));
+      const out = await indexDefiVaults({ chainId, maxMs: remaining });
+      vaultResults.push(...out);
+    }
+  }
+
+  // Tier 2: stealth-followup scanner (USDC.Transfer + CCTP.DepositForBurn).
+  // Runs LAST because per-stealth scans dominate the budget on busy
+  // chains. Each call drains what fits; the next trigger picks up.
   if (wantFollowups) {
     for (const chainId of chains) {
       if (Date.now() > deadline) break;
       const remaining = Math.max(2000, deadline - Date.now());
       const out = await indexStealthFollowups({ chainId, maxMs: remaining });
       followups.push(out);
-    }
-  }
-
-  // Tier 3: per-vault DeFi scanner. Captures every deposit + withdraw on
-  // configured Tezcatli vaults, even for stealths that never appeared in
-  // the watchlist (e.g., user funded the defi stealth directly without
-  // going through Z0tz ledger). PK collisions with rows written by the
-  // followup pass are a no-op.
-  const vaultResults: any[] = [];
-  if (wantFollowups) {
-    for (const chainId of chains) {
-      if (Date.now() > deadline) break;
-      const remaining = Math.max(2000, deadline - Date.now());
-      const out = await indexDefiVaults({ chainId, maxMs: remaining });
-      vaultResults.push(...out);
     }
   }
 
