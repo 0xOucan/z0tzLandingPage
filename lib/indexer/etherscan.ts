@@ -38,6 +38,14 @@ export type EtherscanLog = {
   logIndex: string; // hex
 };
 
+/**
+ * Hard timeout per Etherscan call. Without this, a stuck Etherscan TCP
+ * connection can hang the whole Vercel function until maxDuration kicks
+ * in — and we lose ALL progress for that trigger call. 8s is enough for
+ * a healthy response while keeping the function-budget math predictable.
+ */
+const FETCH_TIMEOUT_MS = 8000;
+
 async function fetchV2(url: string, maxRetries = 3): Promise<any> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
@@ -46,8 +54,10 @@ async function fetchV2(url: string, maxRetries = 3): Promise<any> {
       await new Promise((r) => setTimeout(r, base + jitter));
     }
     await waitForSlot();
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(url, { cache: "no-store", signal: ctl.signal });
       if (!res.ok) {
         if (attempt === maxRetries) return null;
         continue;
@@ -59,6 +69,8 @@ async function fetchV2(url: string, maxRetries = 3): Promise<any> {
       return data;
     } catch {
       if (attempt === maxRetries) return null;
+    } finally {
+      clearTimeout(t);
     }
   }
   return null;

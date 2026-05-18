@@ -3,6 +3,14 @@ import { indexChain, etherscanConfigured } from "@/lib/indexer/indexer";
 import { isEnabled as tursoEnabled } from "@/lib/indexer/turso";
 import { SUPPORTED_CHAINS, type ChainId } from "@/lib/indexer/contracts";
 
+/**
+ * Vercel function duration cap. Hobby tier allows up to 60s (with this
+ * export) — without it the default is 10s and the first backfill can't
+ * complete a meaningful chunk before being killed. Pro tier can go to
+ * 300s; bump this if you're on Pro and want longer per-call windows.
+ */
+export const maxDuration = 60;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
@@ -21,9 +29,11 @@ const V65_DEPLOY_BLOCK: Record<ChainId, number> = {
   421614: 264_507_246,  // arb-sepolia
 };
 
-// Vercel hobby = 10s, pro = 60s, pro+max_duration = 300s. We aim for 50s
-// budget here so we leave headroom for the response serialization.
-const MAX_MS = Number(process.env.INDEXER_MAX_MS ?? "50000");
+// Internal soft deadline. Slightly less than maxDuration so we exit
+// gracefully and serialize the response before Vercel hard-kills us.
+// Hobby's 60s ceiling - 8s response margin = 52s default; user can set
+// INDEXER_MAX_MS to override (e.g. 280_000 on Pro+max_duration=300).
+const MAX_MS = Number(process.env.INDEXER_MAX_MS ?? "52000");
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders });
@@ -52,7 +62,7 @@ export async function POST(req: NextRequest) {
       { status: 500, headers: corsHeaders }
     );
   }
-  if (!etherscanConfigured) {
+  if (!etherscanConfigured()) {
     return NextResponse.json(
       { error: "ETHERSCAN_API_KEY not configured" },
       { status: 500, headers: corsHeaders }
