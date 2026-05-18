@@ -87,12 +87,18 @@ function topicToAddress(topic: string): string {
   return "0x" + topic.slice(-40).toLowerCase();
 }
 
-const SOURCES: EventSource[] = [
-  {
-    key: "EntryPoint.UserOperationEvent",
-    contractFor: (c) => resolveChainContracts(c).entryPoint,
-    abi: ENTRYPOINT_USEROP_EVENT,
-    topic0: TOPIC0.entrypointUserOp,
+// EntryPoint is intentionally NOT in this default list. The contract sees
+// EVERY UserOp from every wallet on the chain (~5K logs per 1M arb blocks),
+// and indexing all of them blew the Vercel 60s function budget. The GUI's
+// stitching code doesn't actually need EntryPoint events to reconstruct
+// history — Ledger.Spent tells us the same thing from the application
+// layer. Caller can still include it explicitly by passing
+// `sourceKeys: [...defaults, "EntryPoint.UserOperationEvent"]`.
+const _ENTRYPOINT_SOURCE: EventSource = {
+  key: "EntryPoint.UserOperationEvent",
+  contractFor: (c) => resolveChainContracts(c).entryPoint,
+  abi: ENTRYPOINT_USEROP_EVENT,
+  topic0: TOPIC0.entrypointUserOp,
     insert: async (chainId, log) => {
       const decoded = decodeEventLog({
         abi: [ENTRYPOINT_USEROP_EVENT],
@@ -122,7 +128,9 @@ const SOURCES: EventSource[] = [
         ],
       });
     },
-  },
+};
+
+const SOURCES: EventSource[] = [
   {
     key: "AccountFactory.AccountCreated",
     contractFor: (c) => resolveChainContracts(c).accountFactory,
