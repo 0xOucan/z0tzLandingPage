@@ -715,24 +715,28 @@ async function scanOneStealth(opts: {
   let usdcInserted = 0;
   let cctpInserted = 0;
 
-  // ─── USDC.Transfer where from = address (cashout counterparty) ────────
-  // We only need the "from" side: cashout flows always have the ephemeral
-  // stealth as `from`, and the smart account's own outgoing transfers as
-  // `from`. The "to" side is captured implicitly by sweep_events
-  // (cash-in) and vault_transferred_out (unshield), so re-indexing it
-  // would be redundant.
+  // ─── USDC.Transfer in BOTH directions (from = stealth, to = stealth) ─
+  // Originally only "from" was indexed — that captured cashout counterparty
+  // resolution. But DeFi withdrawals (Transfer(wrapped, stealth)) and CCTP
+  // mints on the dst chain (Transfer(TokenMinter, stealth)) require the
+  // "to" side too, otherwise those receipts are invisible to /api/history.
+  //
+  // Two separate cursors (`usdc_transfer_from` and `usdc_transfer_to`) so
+  // we can advance them independently — one direction might hit deadline
+  // mid-scan and the other should still make progress on a future trigger.
   if (opts.usdcAddress) {
-    const cursor =
-      (await getFollowupCursor(opts.chainId, opts.address, "usdc_transfer")) ??
+    // -- from = stealth (outgoing: cashouts, defi deposits, transfers out)
+    const fromCursor =
+      (await getFollowupCursor(opts.chainId, opts.address, "usdc_transfer_from")) ??
       opts.firstSeenBlock;
-    if (cursor < opts.head && Date.now() < opts.deadline) {
+    if (fromCursor < opts.head && Date.now() < opts.deadline) {
       const logs = await getLogsPaginated({
         chainId: opts.chainId,
         address: opts.usdcAddress,
-        fromBlock: cursor,
+        fromBlock: fromCursor,
         toBlock: opts.head,
         topic0: TOPIC0.erc20Transfer,
-        topic1: padded, // from = stealth
+        topic1: padded,
         maxPages: 3,
         deadline: opts.deadline,
       });
@@ -740,8 +744,31 @@ async function scanOneStealth(opts: {
         const settled = await Promise.allSettled(
           logs.map((log) => insertUsdcTransfer(opts.chainId, opts.usdcAddress!, log))
         );
-        usdcInserted = settled.filter((r) => r.status === "fulfilled").length;
-        await setFollowupCursor(opts.chainId, opts.address, "usdc_transfer", opts.head);
+        usdcInserted += settled.filter((r) => r.status === "fulfilled").length;
+        await setFollowupCursor(opts.chainId, opts.address, "usdc_transfer_from", opts.head);
+      }
+    }
+    // -- to = stealth (incoming: defi withdraws, CCTP mints, top-ups)
+    const toCursor =
+      (await getFollowupCursor(opts.chainId, opts.address, "usdc_transfer_to")) ??
+      opts.firstSeenBlock;
+    if (toCursor < opts.head && Date.now() < opts.deadline) {
+      const logs = await getLogsPaginated({
+        chainId: opts.chainId,
+        address: opts.usdcAddress,
+        fromBlock: toCursor,
+        toBlock: opts.head,
+        topic0: TOPIC0.erc20Transfer,
+        topic2: padded,
+        maxPages: 3,
+        deadline: opts.deadline,
+      });
+      if (logs) {
+        const settled = await Promise.allSettled(
+          logs.map((log) => insertUsdcTransfer(opts.chainId, opts.usdcAddress!, log))
+        );
+        usdcInserted += settled.filter((r) => r.status === "fulfilled").length;
+        await setFollowupCursor(opts.chainId, opts.address, "usdc_transfer_to", opts.head);
       }
     }
   }

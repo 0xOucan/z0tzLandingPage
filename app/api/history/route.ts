@@ -218,6 +218,57 @@ async function handle(req: NextRequest) {
     cctpBurns = res.rows.map(rowToObj);
   }
 
+  // ─── 8. Second-pass usdc_transfers for bridge mint_recipients ──────
+  // Every CCTP burn in step 7 names a dst-chain mint_recipient that
+  // received the bridged USDC. That recipient address isn't typically in
+  // the passkey-derived set (it's chosen at bridge time, encoded only on
+  // chain). To surface the dst-side receipt + any follow-on transfer,
+  // we extract recipients from cctpBurns, then run a second query on
+  // usdc_transfers across ALL chains touching those addresses. Returned
+  // alongside the primary usdcTransfers so the GUI can stitch by tx hash.
+  let dstSideTransfers: any[] = [];
+  if (cctpBurns.length > 0) {
+    const recipients = Array.from(
+      new Set(
+        cctpBurns
+          .map((b) => {
+            // mint_recipient is stored as 32-byte hex from the event;
+            // address lives in the low 20 bytes.
+            const r = (b.mint_recipient as string) ?? "";
+            return r.length >= 42 ? "0x" + r.slice(-40).toLowerCase() : null;
+          })
+          .filter((r): r is string => !!r)
+      )
+    );
+    if (recipients.length > 0) {
+      const chainPh = chainIds.map(() => "?").join(",");
+      const rPh = recipients.map(() => "?").join(",");
+      const res = await client().execute({
+        sql: `SELECT * FROM usdc_transfers
+              WHERE chain_id IN (${chainPh})
+                AND (from_address IN (${rPh}) OR to_address IN (${rPh}))
+              ORDER BY block_number DESC`,
+        args: [...chainIds, ...recipients, ...recipients],
+      });
+      dstSideTransfers = res.rows.map(rowToObj);
+    }
+  }
+
+  // Merge dst-side rows into the primary usdcTransfers array, dedup by
+  // (chain_id, tx_hash, log_index). The classifier on the GUI side
+  // doesn't care whether a row came from the passkey-set query or the
+  // bridge-recipient query — it just wants all the data.
+  const seen = new Set(
+    usdcTransfers.map((t) => `${t.chain_id}:${t.tx_hash}:${t.log_index}`)
+  );
+  for (const t of dstSideTransfers) {
+    const k = `${t.chain_id}:${t.tx_hash}:${t.log_index}`;
+    if (!seen.has(k)) {
+      usdcTransfers.push(t);
+      seen.add(k);
+    }
+  }
+
   return NextResponse.json(
     {
       ok: true,

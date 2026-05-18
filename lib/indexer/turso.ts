@@ -261,10 +261,25 @@ export async function setScanState(
  * scanner. Returns null if the address hasn't been scanned yet — caller
  * should fall back to the address's first-seen block.
  */
+/**
+ * Cursor event types used by the followup scanner. Split into "from" and
+ * "to" directions for usdc_transfer so each direction's progress can be
+ * tracked independently — one direction might hit the function deadline
+ * mid-scan while the other still has budget to advance.
+ *
+ * usdc_transfer (legacy, kept for backward compat — drained then unused)
+ *   replaced by usdc_transfer_from + usdc_transfer_to.
+ */
+export type FollowupEventType =
+  | "usdc_transfer"        // legacy (from-only)
+  | "usdc_transfer_from"   // topic1 = stealth (outgoing)
+  | "usdc_transfer_to"     // topic2 = stealth (incoming)
+  | "cctp_burn";           // topic2 = stealth (depositor)
+
 export async function getFollowupCursor(
   chainId: number,
   watchedAddress: string,
-  eventType: "usdc_transfer" | "cctp_burn"
+  eventType: FollowupEventType
 ): Promise<number | null> {
   await ensureSchema();
   const res = await client().execute({
@@ -279,7 +294,7 @@ export async function getFollowupCursor(
 export async function setFollowupCursor(
   chainId: number,
   watchedAddress: string,
-  eventType: "usdc_transfer" | "cctp_burn",
+  eventType: FollowupEventType,
   lastBlock: number
 ): Promise<void> {
   await ensureSchema();
@@ -304,18 +319,53 @@ export async function setFollowupCursor(
  * Returns rows of (address, firstSeenBlock) so the followup scanner can
  * scope the Etherscan call to "stealth was alive only after this block".
  */
+/**
+ * CCTP V2 domain ↔ chainId map. Burns on SRC chain encode the DST chain
+ * via destination_domain — so to find mint recipients that landed on a
+ * given chain, we filter burns by domain corresponding to that chain.
+ */
+const CHAIN_TO_CCTP_DOMAIN: Record<number, number> = {
+  11155111: 0, // eth-sepolia
+  421614: 3,   // arb-sepolia
+  84532: 6,    // base-sepolia
+};
+
 export async function getStealthWatchlist(chainId: number): Promise<
   Array<{ address: string; firstSeenBlock: number }>
 > {
   await ensureSchema();
+  // Watchlist sources for chain X:
+  //   - vault_transferred_out.to_address WHERE chain_id = X: ephemeral
+  //     cashout stealths on X.
+  //   - smart_accounts.account_address WHERE chain_id = X: deployed user
+  //     wallets on X.
+  //   - cctp_burns.mint_recipient WHERE destination_domain = domain(X):
+  //     dst-chain stealths that received a CCTP mint here. The burn row
+  //     was emitted on the SRC chain (chain_id != X), but the recipient
+  //     lives on X — so we MUST NOT filter cctp_burns by chain_id here.
+  //
+  // mint_recipient is stored as a bytes32 hex; we slice off the low 20
+  // bytes to get the address. Padding is consistent because CCTP V2
+  // recipients are zero-extended addresses.
+  const dstDomain = CHAIN_TO_CCTP_DOMAIN[chainId];
+  const cctpClause =
+    dstDomain !== undefined
+      ? `UNION ALL
+         SELECT '0x' || lower(substr(mint_recipient, -40)) AS address, block_number
+         FROM cctp_burns WHERE destination_domain = ?`
+      : "";
+  const args: any[] = [chainId, chainId];
+  if (dstDomain !== undefined) args.push(dstDomain);
+
   const res = await client().execute({
     sql: `SELECT address, MIN(block_number) AS first_seen FROM (
             SELECT to_address       AS address, block_number FROM vault_transferred_out WHERE chain_id = ?
             UNION ALL
             SELECT account_address  AS address, block_number FROM smart_accounts        WHERE chain_id = ?
+            ${cctpClause}
           )
           GROUP BY address`,
-    args: [chainId, chainId],
+    args,
   });
   return res.rows.map((r: any) => ({
     address: String(r.address),
