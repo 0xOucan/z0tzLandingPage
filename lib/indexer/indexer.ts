@@ -20,7 +20,7 @@
  *   re-scan recent blocks every run for self-healing (we don't, but
  *   could).
  */
-import { decodeEventLog, keccak256, toBytes, type AbiEvent } from "viem";
+import { decodeEventLog, keccak256, toBytes, type AbiEvent, type Address } from "viem";
 import {
   ENTRYPOINT_USEROP_EVENT,
   ACCOUNT_CREATED_EVENT,
@@ -30,12 +30,24 @@ import {
   LEDGER_SPENT,
   LEDGER_ROTATED,
   VAULT_TRANSFERRED_OUT,
+  ERC20_TRANSFER,
+  CCTP_DEPOSIT_FOR_BURN,
+  CCTP_TOKEN_MESSENGER_V2,
+  USDC_UNDERLYING,
   resolveChainContracts,
   type ChainId,
   SUPPORTED_CHAINS,
 } from "./contracts";
 import { getLogsPaginated, isConfigured as etherscanConfigured, type EtherscanLog } from "./etherscan";
-import { client, ensureSchema, getLastScanBlock, setScanState } from "./turso";
+import {
+  client,
+  ensureSchema,
+  getLastScanBlock,
+  setScanState,
+  getFollowupCursor,
+  setFollowupCursor,
+  getStealthWatchlist,
+} from "./turso";
 
 // 1M blocks per scan chunk. Etherscan getLogs returns up to 1000 logs per
 // call regardless of block range, so for our narrow Z0tz-contract filters
@@ -61,7 +73,14 @@ export const TOPIC0 = {
   ledgerSpent: topic0(LEDGER_SPENT),
   ledgerRotated: topic0(LEDGER_ROTATED),
   vaultTransferredOut: topic0(VAULT_TRANSFERRED_OUT),
+  erc20Transfer: topic0(ERC20_TRANSFER),
+  cctpDepositForBurn: topic0(CCTP_DEPOSIT_FOR_BURN),
 };
+
+/** Zero-pad a 20-byte address into a 32-byte indexed-topic hex value. */
+function padAddressTopic(addr: string): `0x${string}` {
+  return ("0x" + addr.toLowerCase().replace(/^0x/, "").padStart(64, "0")) as `0x${string}`;
+}
 
 // ─── Source registry ────────────────────────────────────────────────────
 // Each entry maps an event-source identifier to (a) the abi (b) how to
@@ -582,6 +601,220 @@ export async function indexChain(opts: {
 /** Convenience helper for the trigger endpoint. */
 export function listSources(): string[] {
   return SOURCES.map((s) => s.key);
+}
+
+// ─── Stealth-followup scanner (USDC.Transfer + CCTP.DepositForBurn) ─────
+//
+// CCTP is a public protocol — TokenMessengerV2 fires 100s of burns/day per
+// chain that have nothing to do with Z0tz. Similarly, USDC.Transfer is
+// completely chain-wide volume. We don't index either globally.
+//
+// Instead, after Tier-1 (sweeper/vault/ledger/factory) finds new Z0tz
+// addresses (ephemeral stealths created by vault unshields + deployed
+// smart accounts), this scanner walks each NEW address through Etherscan
+// with topic1 (USDC from) / topic2 (CCTP depositor) set to that one
+// address. Per-address scans are tiny (1-2 logs each), so even 100s of
+// stealths fit in a single trigger call.
+
+export type FollowupResult = {
+  chainId: number;
+  scanned: number; // addresses scanned this call
+  usdcInserted: number;
+  cctpInserted: number;
+  truncated: boolean;
+};
+
+/**
+ * Scan USDC.Transfer + CCTP.DepositForBurn for every stealth in the
+ * watchlist that doesn't yet have a saturated followup cursor.
+ *
+ * Each per-stealth scan is cheap (~2 Etherscan calls, narrow address
+ * filter, almost always <10 logs). The loop respects the same time
+ * budget as Tier 1 — if we run out, the unstilled stealths get picked
+ * up on the next trigger.
+ */
+export async function indexStealthFollowups(opts: {
+  chainId: ChainId;
+  maxMs?: number;
+}): Promise<FollowupResult> {
+  await ensureSchema();
+  const t0 = Date.now();
+  const deadline = opts.maxMs ? t0 + opts.maxMs : Number.POSITIVE_INFINITY;
+
+  const sharedHead = await fetchChainHead(opts.chainId);
+  if (sharedHead === null || Number.isNaN(sharedHead)) {
+    return { chainId: opts.chainId, scanned: 0, usdcInserted: 0, cctpInserted: 0, truncated: false };
+  }
+
+  const watchlist = await getStealthWatchlist(opts.chainId);
+  const usdc = USDC_UNDERLYING[opts.chainId];
+  let scanned = 0;
+  let usdcInserted = 0;
+  let cctpInserted = 0;
+  let truncated = false;
+
+  console.info(
+    `[followup] start chain=${opts.chainId} watchlist=${watchlist.length} budgetMs=${opts.maxMs ?? "∞"}`
+  );
+
+  for (const w of watchlist) {
+    if (Date.now() > deadline) {
+      truncated = true;
+      break;
+    }
+    const result = await scanOneStealth({
+      chainId: opts.chainId,
+      address: w.address,
+      firstSeenBlock: w.firstSeenBlock,
+      head: sharedHead,
+      usdcAddress: usdc,
+      deadline,
+    });
+    scanned += 1;
+    usdcInserted += result.usdcInserted;
+    cctpInserted += result.cctpInserted;
+  }
+
+  console.info(
+    `[followup] done chain=${opts.chainId} scanned=${scanned}/${watchlist.length} usdc+${usdcInserted} cctp+${cctpInserted} truncated=${truncated} (${Date.now() - t0}ms)`
+  );
+
+  return { chainId: opts.chainId, scanned, usdcInserted, cctpInserted, truncated };
+}
+
+/**
+ * Scan one stealth/account for both event types. Skips event types whose
+ * cursor is already at head. Inserts directly via INSERT OR IGNORE.
+ */
+async function scanOneStealth(opts: {
+  chainId: ChainId;
+  address: string;
+  firstSeenBlock: number;
+  head: number;
+  usdcAddress: Address | undefined;
+  deadline: number;
+}): Promise<{ usdcInserted: number; cctpInserted: number }> {
+  const padded = padAddressTopic(opts.address);
+  let usdcInserted = 0;
+  let cctpInserted = 0;
+
+  // ─── USDC.Transfer where from = address (cashout counterparty) ────────
+  // We only need the "from" side: cashout flows always have the ephemeral
+  // stealth as `from`, and the smart account's own outgoing transfers as
+  // `from`. The "to" side is captured implicitly by sweep_events
+  // (cash-in) and vault_transferred_out (unshield), so re-indexing it
+  // would be redundant.
+  if (opts.usdcAddress) {
+    const cursor =
+      (await getFollowupCursor(opts.chainId, opts.address, "usdc_transfer")) ??
+      opts.firstSeenBlock;
+    if (cursor < opts.head && Date.now() < opts.deadline) {
+      const logs = await getLogsPaginated({
+        chainId: opts.chainId,
+        address: opts.usdcAddress,
+        fromBlock: cursor,
+        toBlock: opts.head,
+        topic0: TOPIC0.erc20Transfer,
+        topic1: padded, // from = stealth
+        maxPages: 3,
+        deadline: opts.deadline,
+      });
+      if (logs) {
+        const settled = await Promise.allSettled(
+          logs.map((log) => insertUsdcTransfer(opts.chainId, opts.usdcAddress!, log))
+        );
+        usdcInserted = settled.filter((r) => r.status === "fulfilled").length;
+        await setFollowupCursor(opts.chainId, opts.address, "usdc_transfer", opts.head);
+      }
+    }
+  }
+
+  // ─── CCTP.DepositForBurn where depositor = address ────────────────────
+  // depositor is topic2 (indexed param #2: burnToken topic1, depositor topic2,
+  // minFinalityThreshold topic3).
+  const cctpCursor =
+    (await getFollowupCursor(opts.chainId, opts.address, "cctp_burn")) ??
+    opts.firstSeenBlock;
+  if (cctpCursor < opts.head && Date.now() < opts.deadline) {
+    const logs = await getLogsPaginated({
+      chainId: opts.chainId,
+      address: CCTP_TOKEN_MESSENGER_V2,
+      fromBlock: cctpCursor,
+      toBlock: opts.head,
+      topic0: TOPIC0.cctpDepositForBurn,
+      topic2: padded, // depositor = stealth
+      maxPages: 3,
+      deadline: opts.deadline,
+    });
+    if (logs) {
+      const settled = await Promise.allSettled(
+        logs.map((log) => insertCctpBurn(opts.chainId, log))
+      );
+      cctpInserted = settled.filter((r) => r.status === "fulfilled").length;
+      await setFollowupCursor(opts.chainId, opts.address, "cctp_burn", opts.head);
+    }
+  }
+
+  return { usdcInserted, cctpInserted };
+}
+
+async function insertUsdcTransfer(
+  chainId: ChainId,
+  tokenAddress: string,
+  log: EtherscanLog
+): Promise<void> {
+  const decoded = decodeEventLog({
+    abi: [ERC20_TRANSFER],
+    data: log.data as `0x${string}`,
+    topics: log.topics as any,
+  });
+  const a = decoded.args as any;
+  await client().execute({
+    sql: `INSERT OR IGNORE INTO usdc_transfers
+          (chain_id, tx_hash, log_index, block_number, block_timestamp,
+           token_address, from_address, to_address, value)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      chainId,
+      log.transactionHash,
+      hexToNum(log.logIndex),
+      hexToNum(log.blockNumber),
+      hexToNum(log.timeStamp),
+      tokenAddress.toLowerCase(),
+      (a.from as string).toLowerCase(),
+      (a.to as string).toLowerCase(),
+      (a.value as bigint).toString(),
+    ],
+  });
+}
+
+async function insertCctpBurn(chainId: ChainId, log: EtherscanLog): Promise<void> {
+  const decoded = decodeEventLog({
+    abi: [CCTP_DEPOSIT_FOR_BURN],
+    data: log.data as `0x${string}`,
+    topics: log.topics as any,
+  });
+  const a = decoded.args as any;
+  await client().execute({
+    sql: `INSERT OR IGNORE INTO cctp_burns
+          (chain_id, tx_hash, log_index, block_number, block_timestamp,
+           token_messenger, burn_token, amount, depositor, mint_recipient,
+           destination_domain)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      chainId,
+      log.transactionHash,
+      hexToNum(log.logIndex),
+      hexToNum(log.blockNumber),
+      hexToNum(log.timeStamp),
+      CCTP_TOKEN_MESSENGER_V2.toLowerCase(),
+      (a.burnToken as string).toLowerCase(),
+      (a.amount as bigint).toString(),
+      (a.depositor as string).toLowerCase(),
+      a.mintRecipient as string,
+      Number(a.destinationDomain),
+    ],
+  });
 }
 
 export { SUPPORTED_CHAINS, etherscanConfigured };

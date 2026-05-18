@@ -136,6 +136,57 @@ export async function ensureSchema(): Promise<void> {
           PRIMARY KEY (chain_id, tx_hash, log_index)
         )`,
 
+        // ─── USDC.Transfer (stealth-scoped only) ────────────────────────
+        // Populated by the per-stealth followup scanner, NOT by a global
+        // topic0 scan — USDC volume is too high to index chain-wide. Each
+        // row is a Transfer where `from` or `to` matched a known Z0tz
+        // address (ephemeral cashout stealth or deployed smart account).
+        `CREATE TABLE IF NOT EXISTS usdc_transfers (
+          chain_id INTEGER NOT NULL,
+          tx_hash TEXT NOT NULL,
+          log_index INTEGER NOT NULL,
+          block_number INTEGER NOT NULL,
+          block_timestamp INTEGER NOT NULL,
+          token_address TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          value TEXT NOT NULL,
+          PRIMARY KEY (chain_id, tx_hash, log_index)
+        )`,
+
+        // ─── CCTP.DepositForBurn (stealth-scoped only) ──────────────────
+        // Same pattern as usdc_transfers — the depositor must be a known
+        // Z0tz address (ephemeral cashout stealth) before we ingest the
+        // row. Required for cross-chain bridge stitching in the GUI.
+        `CREATE TABLE IF NOT EXISTS cctp_burns (
+          chain_id INTEGER NOT NULL,
+          tx_hash TEXT NOT NULL,
+          log_index INTEGER NOT NULL,
+          block_number INTEGER NOT NULL,
+          block_timestamp INTEGER NOT NULL,
+          token_messenger TEXT NOT NULL,
+          burn_token TEXT NOT NULL,
+          amount TEXT NOT NULL,
+          depositor TEXT NOT NULL,
+          mint_recipient TEXT NOT NULL,
+          destination_domain INTEGER NOT NULL,
+          PRIMARY KEY (chain_id, tx_hash, log_index)
+        )`,
+
+        // ─── Stealth-followup scan state ───────────────────────────────
+        // One row per (chain, watched_address, event_type). Lets the
+        // followup scanner advance per-stealth cursors independently and
+        // skip stealths it has already fully scanned. event_type is
+        // 'usdc_transfer' or 'cctp_burn'.
+        `CREATE TABLE IF NOT EXISTS stealth_followup_state (
+          chain_id INTEGER NOT NULL,
+          watched_address TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          last_block_scanned INTEGER NOT NULL,
+          last_scanned_at INTEGER NOT NULL,
+          PRIMARY KEY (chain_id, watched_address, event_type)
+        )`,
+
         // ─── Indexes for fast user-facing queries ──────────────────────
         `CREATE INDEX IF NOT EXISTS ix_smart_accounts_owner
           ON smart_accounts (owner_x, owner_y)`,
@@ -149,6 +200,14 @@ export async function ensureSchema(): Promise<void> {
           ON ledger_events (chain_id, new_ledger_id, block_number)`,
         `CREATE INDEX IF NOT EXISTS ix_vault_to
           ON vault_transferred_out (chain_id, to_address, block_number)`,
+        `CREATE INDEX IF NOT EXISTS ix_usdc_from
+          ON usdc_transfers (chain_id, from_address, block_number)`,
+        `CREATE INDEX IF NOT EXISTS ix_usdc_to
+          ON usdc_transfers (chain_id, to_address, block_number)`,
+        `CREATE INDEX IF NOT EXISTS ix_cctp_depositor
+          ON cctp_burns (chain_id, depositor, block_number)`,
+        `CREATE INDEX IF NOT EXISTS ix_cctp_mint_recipient
+          ON cctp_burns (chain_id, mint_recipient, block_number)`,
       ],
       "write"
     );
@@ -193,4 +252,73 @@ export async function setScanState(
             last_scanned_at    = excluded.last_scanned_at`,
     args: [chainId, contractAddress.toLowerCase(), eventType, lastBlock, Date.now()],
   });
+}
+
+// ─── Stealth-followup state helpers ────────────────────────────────────
+
+/**
+ * Get the per-(chain, address, event-type) scan cursor for the followup
+ * scanner. Returns null if the address hasn't been scanned yet — caller
+ * should fall back to the address's first-seen block.
+ */
+export async function getFollowupCursor(
+  chainId: number,
+  watchedAddress: string,
+  eventType: "usdc_transfer" | "cctp_burn"
+): Promise<number | null> {
+  await ensureSchema();
+  const res = await client().execute({
+    sql: `SELECT last_block_scanned FROM stealth_followup_state
+          WHERE chain_id = ? AND watched_address = ? AND event_type = ?`,
+    args: [chainId, watchedAddress.toLowerCase(), eventType],
+  });
+  const row = res.rows[0];
+  return row ? Number(row.last_block_scanned) : null;
+}
+
+export async function setFollowupCursor(
+  chainId: number,
+  watchedAddress: string,
+  eventType: "usdc_transfer" | "cctp_burn",
+  lastBlock: number
+): Promise<void> {
+  await ensureSchema();
+  await client().execute({
+    sql: `INSERT INTO stealth_followup_state
+            (chain_id, watched_address, event_type, last_block_scanned, last_scanned_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(chain_id, watched_address, event_type) DO UPDATE SET
+            last_block_scanned = excluded.last_block_scanned,
+            last_scanned_at    = excluded.last_scanned_at`,
+    args: [chainId, watchedAddress.toLowerCase(), eventType, lastBlock, Date.now()],
+  });
+}
+
+/**
+ * Build the per-chain watchlist of Z0tz-related addresses for the followup
+ * scanner. Pulls from vault_transferred_out.to (ephemeral cashout stealths
+ * created by our own ledger operations) and smart_accounts.account_address
+ * (deployed user wallets). Both sets are derivable from data we already
+ * indexed in Tier 1, so the watchlist needs no external input.
+ *
+ * Returns rows of (address, firstSeenBlock) so the followup scanner can
+ * scope the Etherscan call to "stealth was alive only after this block".
+ */
+export async function getStealthWatchlist(chainId: number): Promise<
+  Array<{ address: string; firstSeenBlock: number }>
+> {
+  await ensureSchema();
+  const res = await client().execute({
+    sql: `SELECT address, MIN(block_number) AS first_seen FROM (
+            SELECT to_address       AS address, block_number FROM vault_transferred_out WHERE chain_id = ?
+            UNION ALL
+            SELECT account_address  AS address, block_number FROM smart_accounts        WHERE chain_id = ?
+          )
+          GROUP BY address`,
+    args: [chainId, chainId],
+  });
+  return res.rows.map((r: any) => ({
+    address: String(r.address),
+    firstSeenBlock: Number(r.first_seen),
+  }));
 }

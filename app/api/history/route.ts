@@ -161,6 +161,43 @@ export async function POST(req: NextRequest) {
     vaultTransfers = res.rows.map(rowToObj);
   }
 
+  // ─── 6. USDC.Transfer touching our address set (followup-scanner data) ─
+  // We pull where from ∈ our addrs (outgoing — cashout counterparty,
+  // smart-account spends) OR to ∈ our addrs (incoming — top-ups, mints).
+  // The followup scanner only indexes "from" today, but the schema
+  // accommodates both so future ingestion expansion works without
+  // touching this query.
+  let usdcTransfers: any[] = [];
+  const allAddrs = Array.from(new Set([...stealths, ...smartAccounts]));
+  if (allAddrs.length > 0) {
+    const chainPh = chainIds.map(() => "?").join(",");
+    const aPh = allAddrs.map(() => "?").join(",");
+    const res = await client().execute({
+      sql: `SELECT * FROM usdc_transfers
+            WHERE chain_id IN (${chainPh})
+              AND (from_address IN (${aPh}) OR to_address IN (${aPh}))
+            ORDER BY block_number DESC`,
+      args: [...chainIds, ...allAddrs, ...allAddrs],
+    });
+    usdcTransfers = res.rows.map(rowToObj);
+  }
+
+  // ─── 7. CCTP burns where depositor ∈ our address set ────────────────
+  // Returns mint_recipient too so the GUI can stitch dst-chain mint by
+  // looking up the recipient in another chain's usdc_transfers.
+  let cctpBurns: any[] = [];
+  if (allAddrs.length > 0) {
+    const chainPh = chainIds.map(() => "?").join(",");
+    const aPh = allAddrs.map(() => "?").join(",");
+    const res = await client().execute({
+      sql: `SELECT * FROM cctp_burns
+            WHERE chain_id IN (${chainPh}) AND depositor IN (${aPh})
+            ORDER BY block_number DESC`,
+      args: [...chainIds, ...allAddrs],
+    });
+    cctpBurns = res.rows.map(rowToObj);
+  }
+
   return NextResponse.json(
     {
       ok: true,
@@ -169,6 +206,8 @@ export async function POST(req: NextRequest) {
       sweeps,
       ledgerEvents,
       vaultTransfers,
+      usdcTransfers,
+      cctpBurns,
     },
     { headers: corsHeaders }
   );

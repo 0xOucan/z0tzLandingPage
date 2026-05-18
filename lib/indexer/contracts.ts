@@ -57,6 +57,32 @@ export const VAULT_TRANSFERRED_OUT: AbiEvent = parseAbiItem(
   "event TransferredOut(address indexed to, bytes32 indexed encAmount)"
 );
 
+// Standard ERC-20 Transfer. We use this for USDC.Transfer indexing scoped
+// to known Z0tz addresses (NEVER chain-wide — USDC volume is enormous).
+export const ERC20_TRANSFER: AbiEvent = parseAbiItem(
+  "event Transfer(address indexed from, address indexed to, uint256 value)"
+);
+
+// Circle CCTP V2 DepositForBurn. Indexed: burnToken, depositor,
+// minFinalityThreshold. We scope by depositor (topic2) to indexed Z0tz
+// stealths only — TokenMessengerV2 globally is 100s of burns/day, useless
+// noise for our use case.
+export const CCTP_DEPOSIT_FOR_BURN: AbiEvent = parseAbiItem(
+  "event DepositForBurn(address indexed burnToken, uint256 amount, address indexed depositor, bytes32 mintRecipient, uint32 destinationDomain, bytes32 destinationTokenMessenger, bytes32 destinationCaller, uint256 maxFee, uint32 indexed minFinalityThreshold, bytes hookData)"
+);
+
+// Single global address on every Circle V2 testnet+mainnet chain.
+export const CCTP_TOKEN_MESSENGER_V2 = "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA" as const;
+
+// USDC underlying token per supported chain. Sourced from the V6.5
+// deployment JSONs — must match what the relayer + GUI use, otherwise
+// USDC transfer rows won't line up with the GUI's expectations.
+export const USDC_UNDERLYING: Record<ChainId, Address> = {
+  84532: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  11155111: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+  421614: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+};
+
 // ─── Address resolution per chain ────────────────────────────────────────
 
 export type ChainContracts = {
@@ -159,5 +185,6 @@ export function resolveChainContracts(chainId: ChainId): ChainContracts {
     sweeper: fromEnv.sweeper ?? fallback.sweeper,
     ledger: fromEnv.ledger ?? fallback.ledger,
     vault: fromEnv.vault ?? fallback.vault,
+    paymaster: fromEnv.paymaster ?? fallback.paymaster,
   };
 }

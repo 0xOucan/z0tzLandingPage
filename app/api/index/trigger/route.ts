@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { indexChain, etherscanConfigured } from "@/lib/indexer/indexer";
+import { indexChain, indexStealthFollowups, etherscanConfigured } from "@/lib/indexer/indexer";
 import { isEnabled as tursoEnabled } from "@/lib/indexer/turso";
 import { SUPPORTED_CHAINS, type ChainId } from "@/lib/indexer/contracts";
 
@@ -90,7 +90,10 @@ export async function POST(req: NextRequest) {
   const startedAt = Date.now();
   const deadline = startedAt + MAX_MS;
   const results: any[] = [];
+  const followups: any[] = [];
 
+  // Tier 1: global event sources (sweeper/vault/ledger/factory/entrypoint).
+  // Bounded contract address sets → topic0-only scans are cheap.
   for (const chainId of chains) {
     if (Date.now() > deadline) break;
     const remaining = Math.max(2000, deadline - Date.now());
@@ -103,11 +106,26 @@ export async function POST(req: NextRequest) {
     results.push(...out);
   }
 
+  // Tier 2: stealth-followup scanner (USDC.Transfer + CCTP.DepositForBurn).
+  // Skipped if caller filtered Tier-1 sources or budget is already spent —
+  // followups depend on the watchlist that Tier 1 just populated, so it's
+  // fine to defer them to a subsequent trigger.
+  const wantFollowups = !body.sourceKeys || body.sourceKeys.length === 0;
+  if (wantFollowups) {
+    for (const chainId of chains) {
+      if (Date.now() > deadline) break;
+      const remaining = Math.max(2000, deadline - Date.now());
+      const out = await indexStealthFollowups({ chainId, maxMs: remaining });
+      followups.push(out);
+    }
+  }
+
   return NextResponse.json(
     {
       ok: true,
       elapsedMs: Date.now() - startedAt,
       results,
+      followups,
     },
     { headers: corsHeaders }
   );
