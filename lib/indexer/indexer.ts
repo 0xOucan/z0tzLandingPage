@@ -490,20 +490,37 @@ export async function indexSource(opts: {
       truncated = true;
       break;
     }
-    // Concurrent inserts — sequential INSERTs over 4000+ logs (EntryPoint
-    // on a high-volume chunk) take ~5ms each, ~20s total. Concurrent
-    // inserts pipeline the SQL roundtrips and Turso handles concurrent
-    // writes well. PRIMARY KEY uniqueness means duplicates collapse.
-    const settled = await Promise.allSettled(
-      logs.map((log) => source.insert(opts.chainId, log))
-    );
-    for (const r of settled) {
-      if (r.status === "fulfilled") inserted += 1;
-      else
-        console.warn(
-          `[indexer] insert failed for ${opts.sourceKey}: ${r.reason?.message?.slice(0, 120) ?? r.reason}`
-        );
+    // Chunked concurrent inserts — fully-parallel `allSettled` over 4000+
+    // logs (EntryPoint on a busy chunk) spawned ~4855 simultaneous Turso
+    // round-trips and burned ~15s of function budget, starving the
+    // followup pass that runs after Tier 1. Chunks of 500 cap each insert
+    // burst at ~1s and let us bail mid-source if the deadline is past.
+    // PRIMARY KEY uniqueness means re-inserts on the next trigger are free.
+    const INSERT_BATCH = 500;
+    let chunkInserted = 0;
+    let bailOut = false;
+    for (let i = 0; i < logs.length; i += INSERT_BATCH) {
+      if (Date.now() > deadline) {
+        truncated = true;
+        bailOut = true;
+        break;
+      }
+      const batch = logs.slice(i, i + INSERT_BATCH);
+      const settled = await Promise.allSettled(
+        batch.map((log) => source.insert(opts.chainId, log))
+      );
+      for (const r of settled) {
+        if (r.status === "fulfilled") {
+          inserted += 1;
+          chunkInserted += 1;
+        } else {
+          console.warn(
+            `[indexer] insert failed for ${opts.sourceKey}: ${r.reason?.message?.slice(0, 120) ?? r.reason}`
+          );
+        }
+      }
     }
+    if (bailOut) break;
     await setScanState(opts.chainId, contract, opts.sourceKey, chunkEnd);
     cursor = chunkEnd + 1;
   }
