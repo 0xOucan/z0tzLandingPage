@@ -537,28 +537,77 @@ export async function indexSource(opts: {
 }
 
 /**
- * Single head-fetch helper. Goes through fetchV2's rate limiter so
- * parallel callers from indexChain don't fight Etherscan's per-IP cap.
+ * Per-process cache of recent chain-head reads. Tier 1 + Vault + Followup
+ * all want the same head; without caching they each fire an
+ * eth_blockNumber call and the second/third hit Etherscan's per-IP rate
+ * limit, return null, and bail out.
+ *
+ * Cache lifetime is short (15s) so head data stays fresh across the
+ * 60-second function lifespan.
+ */
+const HEAD_CACHE_MS = 15_000;
+const headCache = new Map<number, { value: number; ts: number }>();
+
+/**
+ * Head fetch with caching + retry-on-rate-limit. Caches the result for
+ * HEAD_CACHE_MS so parallel passes share a single read. Falls back to
+ * the chain's RPC pool if Etherscan returns nothing parseable.
  */
 async function fetchChainHead(chainId: number): Promise<number | null> {
+  const now = Date.now();
+  const cached = headCache.get(chainId);
+  if (cached && now - cached.ts < HEAD_CACHE_MS) return cached.value;
+
   const key = process.env.ETHERSCAN_API_KEY?.trim();
-  if (!key) return null;
-  try {
+  if (key) {
     const url = `https://api.etherscan.io/v2/api?chainid=${chainId}&module=proxy&action=eth_blockNumber&apikey=${key}`;
-    // Skip the rate-limited fetchV2 path because head fetches are
-    // infrequent (once per indexChain call) and we'd rather get the
-    // raw response without retry-on-empty (eth_blockNumber returns
-    // status=undefined, not Etherscan's {status,message,result} shape).
-    const res = await fetch(url, { cache: "no-store" });
-    const j = await res.json();
-    if (typeof j?.result === "string" && j.result.startsWith("0x")) {
-      const n = parseInt(j.result, 16);
-      if (Number.isFinite(n)) return n;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        const j = await res.json();
+        if (typeof j?.result === "string" && j.result.startsWith("0x")) {
+          const n = parseInt(j.result, 16);
+          if (Number.isFinite(n)) {
+            headCache.set(chainId, { value: n, ts: Date.now() });
+            return n;
+          }
+        }
+        // Rate-limited: { jsonrpc, id, error: { code, message: "Max rate ..." } }
+        // or status=0 form. Brief backoff then retry.
+        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+      } catch {
+        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+      }
     }
-    return null;
-  } catch {
-    return null;
   }
+
+  // Etherscan failed — fall back to the chain's RPC pool. Direct
+  // eth_blockNumber, no retries inside the pool because resolvePool
+  // already orders by reliability.
+  const { resolvePool } = await import("@/lib/relayer/rpc");
+  const pool = resolvePool(chainId);
+  for (const url of pool) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+        cache: "no-store",
+      });
+      if (!res.ok) continue;
+      const j = await res.json();
+      if (typeof j?.result === "string" && j.result.startsWith("0x")) {
+        const n = parseInt(j.result, 16);
+        if (Number.isFinite(n)) {
+          headCache.set(chainId, { value: n, ts: Date.now() });
+          return n;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 /**
