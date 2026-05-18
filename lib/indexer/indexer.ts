@@ -48,6 +48,7 @@ import {
   setFollowupCursor,
   getStealthWatchlist,
 } from "./turso";
+import { vaultsForChain, type IndexedVault } from "./defi-vaults";
 
 // 1M blocks per scan chunk. Etherscan getLogs returns up to 1000 logs per
 // call regardless of block range, so for our narrow Z0tz-contract filters
@@ -800,6 +801,149 @@ async function scanOneStealth(opts: {
   }
 
   return { usdcInserted, cctpInserted };
+}
+
+// ─── DeFi vault USDC.Transfer scanner ─────────────────────────────────
+//
+// Indexes deposits + withdrawals for every Z0tz confidential vault, regardless
+// of whether the depositor/withdrawer is in our stealth watchlist. The
+// scanner-per-stealth path (indexStealthFollowups) is great when the user
+// has cashed out to a defi stealth (which puts the stealth on the
+// watchlist), but DOES NOT discover deposits that came from elsewhere
+// (e.g., user directly funded the defi stealth without going through the
+// ledger). This per-vault pass closes that gap by anchoring on the wrapped
+// contract — every deposit and withdraw on that vault MUST involve the
+// wrapped contract, so two USDC.Transfer scans (one with topic2=wrapped,
+// one with topic1=wrapped) capture the whole event set.
+
+export type VaultScanResult = {
+  chainId: number;
+  vaultId: string;
+  depositsInserted: number;
+  withdrawsInserted: number;
+  truncated: boolean;
+};
+
+/**
+ * Per-vault USDC.Transfer scan. Two passes per vault:
+ *   - topic2 = wrapped → deposits (Transfer(*, wrapped))
+ *   - topic1 = wrapped → withdraws (Transfer(wrapped, *))
+ * Both write to the existing usdc_transfers table — PK collisions with
+ * the stealth followup are a no-op, so a row is captured exactly once.
+ *
+ * Each direction has its own scan_state cursor keyed by
+ * (chain, wrapped_contract, "Vault.<vaultId>.deposit" | ".withdraw").
+ */
+async function scanOneVault(opts: {
+  chainId: ChainId;
+  vault: IndexedVault;
+  head: number;
+  deadline: number;
+}): Promise<VaultScanResult> {
+  const wrappedPadded = padAddressTopic(opts.vault.wrapped);
+  const depositKey = `Vault.${opts.vault.id}.deposit`;
+  const withdrawKey = `Vault.${opts.vault.id}.withdraw`;
+  // Deploy-time floor: the wrapped contract didn't exist before its
+  // deployment block. We don't have that block here; use 0 and rely on
+  // Etherscan's filter to skip empty ranges fast. PK dedup makes
+  // overlapping ranges safe.
+  let depositsInserted = 0;
+  let withdrawsInserted = 0;
+  let truncated = false;
+
+  // ── Deposits: topic2 = wrapped ─────────────────────────────────────
+  const dCursorRow = await getLastScanBlock(opts.chainId, opts.vault.wrapped, depositKey);
+  const dCursor = dCursorRow !== null ? dCursorRow + 1 : 0;
+  if (dCursor <= opts.head && Date.now() < opts.deadline) {
+    const logs = await getLogsPaginated({
+      chainId: opts.chainId,
+      address: opts.vault.underlying,
+      fromBlock: dCursor,
+      toBlock: opts.head,
+      topic0: TOPIC0.erc20Transfer,
+      topic2: wrappedPadded,
+      maxPages: 5,
+      deadline: opts.deadline,
+    });
+    if (logs) {
+      const settled = await Promise.allSettled(
+        logs.map((log) => insertUsdcTransfer(opts.chainId, opts.vault.underlying, log))
+      );
+      depositsInserted = settled.filter((r) => r.status === "fulfilled").length;
+      await setScanState(opts.chainId, opts.vault.wrapped, depositKey, opts.head);
+    } else {
+      truncated = true;
+    }
+  }
+
+  // ── Withdraws: topic1 = wrapped ────────────────────────────────────
+  const wCursorRow = await getLastScanBlock(opts.chainId, opts.vault.wrapped, withdrawKey);
+  const wCursor = wCursorRow !== null ? wCursorRow + 1 : 0;
+  if (wCursor <= opts.head && Date.now() < opts.deadline) {
+    const logs = await getLogsPaginated({
+      chainId: opts.chainId,
+      address: opts.vault.underlying,
+      fromBlock: wCursor,
+      toBlock: opts.head,
+      topic0: TOPIC0.erc20Transfer,
+      topic1: wrappedPadded,
+      maxPages: 5,
+      deadline: opts.deadline,
+    });
+    if (logs) {
+      const settled = await Promise.allSettled(
+        logs.map((log) => insertUsdcTransfer(opts.chainId, opts.vault.underlying, log))
+      );
+      withdrawsInserted = settled.filter((r) => r.status === "fulfilled").length;
+      await setScanState(opts.chainId, opts.vault.wrapped, withdrawKey, opts.head);
+    } else {
+      truncated = true;
+    }
+  }
+
+  return {
+    chainId: opts.chainId,
+    vaultId: opts.vault.id,
+    depositsInserted,
+    withdrawsInserted,
+    truncated,
+  };
+}
+
+/**
+ * Run the vault scanner across every configured vault on a chain. Each
+ * vault is scanned in series so the rate limiter has a steady cadence;
+ * within a vault deposits + withdraws share a single budget window.
+ *
+ * If a chain has no configured vaults, returns []. The trigger route
+ * still calls this — overhead is one DB query.
+ */
+export async function indexDefiVaults(opts: {
+  chainId: ChainId;
+  maxMs?: number;
+}): Promise<VaultScanResult[]> {
+  await ensureSchema();
+  const t0 = Date.now();
+  const deadline = opts.maxMs ? t0 + opts.maxMs : Number.POSITIVE_INFINITY;
+  const vaults = vaultsForChain(opts.chainId);
+  if (vaults.length === 0) return [];
+  const head = await fetchChainHead(opts.chainId);
+  if (head === null || Number.isNaN(head)) return [];
+  const results: VaultScanResult[] = [];
+  for (const v of vaults) {
+    if (Date.now() > deadline) break;
+    const r = await scanOneVault({
+      chainId: opts.chainId,
+      vault: v,
+      head,
+      deadline,
+    });
+    results.push(r);
+  }
+  console.info(
+    `[vault-scan] chain=${opts.chainId} results=${results.length} elapsed=${Date.now() - t0}ms`
+  );
+  return results;
 }
 
 async function insertUsdcTransfer(

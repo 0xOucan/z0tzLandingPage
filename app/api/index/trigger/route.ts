@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { indexChain, indexStealthFollowups, etherscanConfigured } from "@/lib/indexer/indexer";
+import {
+  indexChain,
+  indexStealthFollowups,
+  indexDefiVaults,
+  etherscanConfigured,
+} from "@/lib/indexer/indexer";
 import { isEnabled as tursoEnabled } from "@/lib/indexer/turso";
 import { SUPPORTED_CHAINS, type ChainId } from "@/lib/indexer/contracts";
 
@@ -120,12 +125,28 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Tier 3: per-vault DeFi scanner. Captures every deposit + withdraw on
+  // configured Tezcatli vaults, even for stealths that never appeared in
+  // the watchlist (e.g., user funded the defi stealth directly without
+  // going through Z0tz ledger). PK collisions with rows written by the
+  // followup pass are a no-op.
+  const vaultResults: any[] = [];
+  if (wantFollowups) {
+    for (const chainId of chains) {
+      if (Date.now() > deadline) break;
+      const remaining = Math.max(2000, deadline - Date.now());
+      const out = await indexDefiVaults({ chainId, maxMs: remaining });
+      vaultResults.push(...out);
+    }
+  }
+
   return NextResponse.json(
     {
       ok: true,
       elapsedMs: Date.now() - startedAt,
       results,
       followups,
+      vaults: vaultResults,
     },
     { headers: corsHeaders }
   );
