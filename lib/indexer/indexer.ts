@@ -377,23 +377,12 @@ export async function indexSource(opts: {
   const lastBlock = await getLastScanBlock(opts.chainId, contract, opts.sourceKey);
   const fromBlock = lastBlock !== null ? lastBlock + 1 : opts.startBlockFallback;
 
-  // Determine head. Use override or fetch via Etherscan (lightweight).
-  const head =
-    opts.headOverride ??
-    (await (async () => {
-      // Cheap eth_blockNumber via Etherscan proxy.
-      const key = process.env.ETHERSCAN_API_KEY?.trim();
-      if (!key) return null;
-      try {
-        const url = `https://api.etherscan.io/v2/api?chainid=${opts.chainId}&module=proxy&action=eth_blockNumber&apikey=${key}`;
-        const res = await fetch(url, { cache: "no-store" });
-        const j = await res.json();
-        return j.result ? parseInt(j.result, 16) : null;
-      } catch {
-        return null;
-      }
-    })());
-  if (head === null) {
+  // Determine head. Prefer caller-provided override (lets indexChain share
+  // one head fetch across all 8 parallel sources — otherwise they each
+  // race Etherscan for eth_blockNumber and most get rate-limited back to
+  // NaN, which silently zeroes their scan range).
+  const head = opts.headOverride ?? (await fetchChainHead(opts.chainId));
+  if (head === null || Number.isNaN(head)) {
     return {
       chainId: opts.chainId,
       source: opts.sourceKey,
@@ -458,16 +447,19 @@ export async function indexSource(opts: {
       truncated = true;
       break;
     }
-    for (const log of logs) {
-      try {
-        await source.insert(opts.chainId, log);
-        inserted += 1;
-      } catch (e: any) {
-        // Single-row insert failure shouldn't kill the whole batch.
+    // Concurrent inserts — sequential INSERTs over 4000+ logs (EntryPoint
+    // on a high-volume chunk) take ~5ms each, ~20s total. Concurrent
+    // inserts pipeline the SQL roundtrips and Turso handles concurrent
+    // writes well. PRIMARY KEY uniqueness means duplicates collapse.
+    const settled = await Promise.allSettled(
+      logs.map((log) => source.insert(opts.chainId, log))
+    );
+    for (const r of settled) {
+      if (r.status === "fulfilled") inserted += 1;
+      else
         console.warn(
-          `[indexer] insert failed for ${opts.sourceKey} log ${log.transactionHash}: ${e.message?.slice(0, 120)}`
+          `[indexer] insert failed for ${opts.sourceKey}: ${r.reason?.message?.slice(0, 120) ?? r.reason}`
         );
-      }
     }
     await setScanState(opts.chainId, contract, opts.sourceKey, chunkEnd);
     cursor = chunkEnd + 1;
@@ -481,6 +473,31 @@ export async function indexSource(opts: {
     inserted,
     truncated,
   };
+}
+
+/**
+ * Single head-fetch helper. Goes through fetchV2's rate limiter so
+ * parallel callers from indexChain don't fight Etherscan's per-IP cap.
+ */
+async function fetchChainHead(chainId: number): Promise<number | null> {
+  const key = process.env.ETHERSCAN_API_KEY?.trim();
+  if (!key) return null;
+  try {
+    const url = `https://api.etherscan.io/v2/api?chainid=${chainId}&module=proxy&action=eth_blockNumber&apikey=${key}`;
+    // Skip the rate-limited fetchV2 path because head fetches are
+    // infrequent (once per indexChain call) and we'd rather get the
+    // raw response without retry-on-empty (eth_blockNumber returns
+    // status=undefined, not Etherscan's {status,message,result} shape).
+    const res = await fetch(url, { cache: "no-store" });
+    const j = await res.json();
+    if (typeof j?.result === "string" && j.result.startsWith("0x")) {
+      const n = parseInt(j.result, 16);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -507,6 +524,10 @@ export async function indexChain(opts: {
   sourceKeys?: string[]; // optional filter
 }): Promise<IndexResult[]> {
   const keys = opts.sourceKeys ?? SOURCES.map((s) => s.key);
+  // Single head fetch shared by all 8 sources. Without this every source
+  // fetches its own head in parallel — Etherscan rate-limits most of
+  // them to NaN and they silently return zero results.
+  const sharedHead = await fetchChainHead(opts.chainId);
   // allSettled so one slow/erroring source can't reject the whole batch
   // before others get to report their progress.
   const settled = await Promise.allSettled(
@@ -516,6 +537,7 @@ export async function indexChain(opts: {
         sourceKey: key,
         startBlockFallback: opts.startBlockFallback,
         maxMs: opts.maxMs,
+        headOverride: sharedHead ?? undefined,
       })
     )
   );
