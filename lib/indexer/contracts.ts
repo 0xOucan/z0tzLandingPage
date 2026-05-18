@@ -70,25 +70,31 @@ export type ChainContracts = {
 };
 
 /**
- * Per-chain contract addresses, loaded from env vars. Mirrors the convention
- * already used by app/api/config/route.ts.
+ * Per-chain contract addresses, loaded from env vars.
  *
- * Expected env names (NEW for indexer — falls back to existing relayer vars
- * where the names overlap):
- *   ENTRY_POINT_ADDRESS_{chainId}    or  ENTRYPOINT_ADDRESS_{chainId}
- *   ACCOUNT_FACTORY_ADDRESS_{chainId}
- *   SWEEPER_V65_ADDRESS_{chainId}    (already used by relayer)
- *   LEDGER_ADDRESS_{chainId}         (already used by relayer)
- *   VAULT_ADDRESS_{chainId}          (already used by relayer)
+ * IMPORTANT — DO NOT reuse the relayer's existing LEDGER_ADDRESS_{X} /
+ * VAULT_ADDRESS_{X} / SWEEPER_V65_ADDRESS_{X} env vars. Those point at the
+ * older V6.5.2 deployment (2026-04-16) that the relayer uses for its own
+ * operations. The indexer reads events from the V6.5 deployment
+ * (2026-05-01), which has different addresses.
+ *
+ * Indexer-specific env var names (set these in Vercel):
+ *   INDEXER_ENTRY_POINT_ADDRESS_{chainId}
+ *   INDEXER_ACCOUNT_FACTORY_ADDRESS_{chainId}
+ *   INDEXER_SWEEPER_ADDRESS_{chainId}
+ *   INDEXER_LEDGER_ADDRESS_{chainId}
+ *   INDEXER_VAULT_ADDRESS_{chainId}
+ *
+ * If any var is missing, falls back to STATIC_TESTNET_ADDRESSES below.
+ * Those are the V6.5 (2026-05-01) deployment addresses, hard-coded so the
+ * indexer works on a clean Vercel env with just the 3 secrets set.
  */
 export function loadChainContracts(chainId: ChainId): ChainContracts {
-  const ep =
-    process.env[`ENTRY_POINT_ADDRESS_${chainId}`] ??
-    process.env[`ENTRYPOINT_ADDRESS_${chainId}`];
-  const factory = process.env[`ACCOUNT_FACTORY_ADDRESS_${chainId}`];
-  const sweeper = process.env[`SWEEPER_V65_ADDRESS_${chainId}`];
-  const ledger = process.env[`LEDGER_ADDRESS_${chainId}`];
-  const vault = process.env[`VAULT_ADDRESS_${chainId}`];
+  const ep = process.env[`INDEXER_ENTRY_POINT_ADDRESS_${chainId}`];
+  const factory = process.env[`INDEXER_ACCOUNT_FACTORY_ADDRESS_${chainId}`];
+  const sweeper = process.env[`INDEXER_SWEEPER_ADDRESS_${chainId}`];
+  const ledger = process.env[`INDEXER_LEDGER_ADDRESS_${chainId}`];
+  const vault = process.env[`INDEXER_VAULT_ADDRESS_${chainId}`];
   return {
     chainId,
     network: CHAIN_NETWORK[chainId],
@@ -115,12 +121,14 @@ export const STATIC_TESTNET_ADDRESSES: Record<ChainId, Partial<ChainContracts>> 
   },
   11155111: {
     entryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+    accountFactory: "0x68f673159Ca6791Fd90a9abc183dcf85caD5B431",
     sweeper: "0x9BA45877b983a0c704dA37b50cd5e746e66E5F66",
     ledger: "0x60570F2DeA11A09B5c6411A8f48017F50eFc4D6C",
     vault: "0x763BC9f2F6520E92B4D56622F55F370D3bF1bF3F",
   },
   421614: {
     entryPoint: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+    accountFactory: "0xeb571Fb31DcB7713bf83CdcF137003c852089eE8",
     sweeper: "0x0fb0CC4eedfA2f93729cD16Cd2F553A617e56D5A",
     ledger: "0x1b45Da2D95ad8180D60616b668F44AC8dc457504",
     vault: "0x2B147275C63aFDF8583A4bce53c49100fE171CAC",
