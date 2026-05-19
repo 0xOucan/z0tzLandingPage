@@ -38,7 +38,7 @@ import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { makeTransport, primaryRpc } from "@/lib/relayer/rpc";
 import { geofenceResponse } from "@/lib/relayer/geofence";
-import { triggerIndexScan } from "@/lib/relayer/trigger-indexer";
+import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -222,7 +222,15 @@ export async function POST(req: NextRequest) {
     // Don't wait for the receipt — Vercel functions have a 10s default
     // timeout on hobby plans, and Aave's USDC supply is reliable. Return
     // the tx hash and let the client poll if it cares.
-    void triggerIndexScan(chainId, req).catch(() => {});
+    triggerScanAndRecord({
+      chainId,
+      txHash: txHash as `0x${string}`,
+      opKind: "strategy-deploy",
+      req,
+      // No owner X/Y: strategy ops are operational (relayer-driven),
+      // not user-attributable. Cost lands in relayer_op_costs with
+      // null identity_root.
+    });
     return NextResponse.json({
       ok: true,
       txHash,

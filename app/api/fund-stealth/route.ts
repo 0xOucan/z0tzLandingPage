@@ -5,7 +5,7 @@ import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { makeTransport, primaryRpc, RPC_POOLS } from "@/lib/relayer/rpc";
 import { geofenceResponse } from "@/lib/relayer/geofence";
-import { triggerIndexScan } from "@/lib/relayer/trigger-indexer";
+import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -111,10 +111,17 @@ export async function POST(req: NextRequest) {
 
     await client.waitForTransactionReceipt({ hash });
 
-    // Fire-and-forget: tell the indexer to scan this chain so the history
-    // DB picks up any sweeps / ledger ops that will follow this top-up.
-    // Failures here MUST NOT affect the user-facing fund-stealth response.
-    void triggerIndexScan(chainId, req).catch(() => {});
+    // Fire-and-forget: indexer trigger + cost record. Cost attribution
+    // for fund-stealth comes from the relayer-auth headers if present
+    // (the GUI signs the request with the user's passkey).
+    triggerScanAndRecord({
+      chainId,
+      txHash: hash as `0x${string}`,
+      opKind: "fund-stealth",
+      ownerXHex: req.headers.get("x-z0tz-pubx") ?? undefined,
+      ownerYHex: req.headers.get("x-z0tz-puby") ?? undefined,
+      req,
+    });
 
     return NextResponse.json({ success: true, txHash: hash }, { headers: corsHeaders });
   } catch (error) {

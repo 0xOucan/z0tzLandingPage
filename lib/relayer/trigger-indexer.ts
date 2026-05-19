@@ -13,6 +13,44 @@
  * with `truncated:false, scanned:0` if cursors are already at head.
  */
 import type { NextRequest } from "next/server";
+import type { Hex } from "viem";
+import { recordOpCostAsync, type OpKind, identityRootFor } from "./cost-tracker";
+
+/**
+ * Convenience wrapper: kick the indexer AND record the op's cost in
+ * one fire-and-forget. Endpoints that have a txHash + (optional)
+ * owner identity should call this instead of triggerIndexScan alone.
+ *
+ * Both writes run in parallel. The indexer trigger keeps existing
+ * /api/history queries fresh; the cost-tracker fills user_debt for
+ * the next quote-fee read.
+ */
+export function triggerScanAndRecord(opts: {
+  chainId: number;
+  txHash?: Hex;
+  opKind: OpKind;
+  ownerXHex?: string;
+  ownerYHex?: string;
+  req: NextRequest;
+}): void {
+  void triggerIndexScan(opts.chainId, opts.req).catch(() => {});
+  if (opts.txHash) {
+    let identityRoot: Hex | null = null;
+    if (opts.ownerXHex && opts.ownerYHex) {
+      try {
+        identityRoot = identityRootFor(opts.ownerXHex, opts.ownerYHex);
+      } catch {
+        // Bad owner inputs — record the op without attribution.
+      }
+    }
+    void recordOpCostAsync({
+      chainId: opts.chainId,
+      txHash: opts.txHash,
+      opKind: opts.opKind,
+      identityRoot,
+    }).catch(() => {});
+  }
+}
 
 export function triggerIndexerBaseUrl(req: NextRequest): string {
   return (

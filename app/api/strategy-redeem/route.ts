@@ -36,7 +36,7 @@ import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { makeTransport, primaryRpc } from "@/lib/relayer/rpc";
 import { geofenceResponse } from "@/lib/relayer/geofence";
-import { triggerIndexScan } from "@/lib/relayer/trigger-indexer";
+import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -218,7 +218,12 @@ export async function POST(req: NextRequest) {
       args: [onChainAdapter, sharesToRedeem, minAssetsOut],
     });
 
-    void triggerIndexScan(chainId, req).catch(() => {});
+    triggerScanAndRecord({
+      chainId,
+      txHash: txHash as `0x${string}`,
+      opKind: "strategy-redeem",
+      req,
+    });
     return NextResponse.json({
       ok: true,
       txHash,
