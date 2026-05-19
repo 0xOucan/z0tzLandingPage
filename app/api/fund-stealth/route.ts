@@ -6,11 +6,12 @@ import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { makeTransport, primaryRpc, RPC_POOLS } from "@/lib/relayer/rpc";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
+import { isBypassRequest } from "@/lib/relayer/bypass";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Z0tz-PubX, X-Z0tz-PubY, X-Z0tz-Sig",
+  "Access-Control-Allow-Headers": "Content-Type, X-Z0tz-PubX, X-Z0tz-PubY, X-Z0tz-Sig, X-Z0tz-Bypass",
 };
 
 const CHAINS: Record<number, any> = {
@@ -35,16 +36,22 @@ export async function POST(req: NextRequest) {
   const blocked = geofenceResponse(req, corsHeaders);
   if (blocked) return blocked;
 
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
-  const now = Date.now();
-  const entry = fundLimitMap.get(ip);
-  if (entry && now < entry.resetAt && entry.count >= FUND_LIMIT) {
-    return NextResponse.json({ success: false, error: `Rate limit: max ${FUND_LIMIT} stealth funds per hour` }, { status: 429, headers: corsHeaders });
-  }
-  if (!entry || now > (entry?.resetAt ?? 0)) {
-    fundLimitMap.set(ip, { count: 1, resetAt: now + 3600_000 });
-  } else {
-    entry.count++;
+  // Internal callers (volume bot, paid-tier customers) can present the
+  // RELAYER_BYPASS_TOKEN header to skip per-IP rate limits without
+  // affecting normal-user protections. See lib/relayer/bypass.ts.
+  const bypass = isBypassRequest(req);
+  if (!bypass) {
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
+    const now = Date.now();
+    const entry = fundLimitMap.get(ip);
+    if (entry && now < entry.resetAt && entry.count >= FUND_LIMIT) {
+      return NextResponse.json({ success: false, error: `Rate limit: max ${FUND_LIMIT} stealth funds per hour` }, { status: 429, headers: corsHeaders });
+    }
+    if (!entry || now > (entry?.resetAt ?? 0)) {
+      fundLimitMap.set(ip, { count: 1, resetAt: now + 3600_000 });
+    } else {
+      entry.count++;
+    }
   }
 
   try {

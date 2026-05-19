@@ -3,6 +3,7 @@ import { relayUserOp, loadConfigFromEnv, type UserOperation } from "@/lib/relaye
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
+import { isBypassRequest } from "@/lib/relayer/bypass";
 
 // Rate limiting
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -23,7 +24,7 @@ function checkRateLimit(ip: string): boolean {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Z0tz-PubX, X-Z0tz-PubY, X-Z0tz-Sig",
+  "Access-Control-Allow-Headers": "Content-Type, X-Z0tz-PubX, X-Z0tz-PubY, X-Z0tz-Sig, X-Z0tz-Bypass",
 };
 
 export async function OPTIONS() {
@@ -34,9 +35,14 @@ export async function POST(req: NextRequest) {
   const blocked = geofenceResponse(req, corsHeaders);
   if (blocked) return blocked;
 
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
-  if (!checkRateLimit(ip)) {
-    return NextResponse.json({ success: false, error: "Rate limit exceeded" }, { status: 429, headers: corsHeaders });
+  // Bypass token short-circuits per-IP rate limit for trusted internal
+  // callers (volume bot). Production user traffic doesn't carry the
+  // header and continues to be rate-limited at MAX_OPS_PER_MINUTE.
+  if (!isBypassRequest(req)) {
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
+    if (!checkRateLimit(ip)) {
+      return NextResponse.json({ success: false, error: "Rate limit exceeded" }, { status: 429, headers: corsHeaders });
+    }
   }
 
   try {
