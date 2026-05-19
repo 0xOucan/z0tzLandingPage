@@ -157,41 +157,68 @@ export async function POST(req: NextRequest) {
     // user withdraws, so it over-counts after every withdraw and the redeem
     // gets sized too small. tzcUSDC is dedicated to the Tezcatli vault, so
     // its USDC reserve maps 1:1 to vault-attributable idle.
-    const [strategyShares, wrapperReserve, aTokenBalance] = await Promise.all([
+    // We read THREE quantities, not two. The vault's IdleBucketEmpty
+    // guard at line 286 of TezcatliConfidentialVault.sol gates on
+    // `idleAssetsHint == 0` — the vault's OWN internal accounting,
+    // updated only when the coordinator deploys / redeems. wrapperReserve
+    // is the actual USDC sitting in tzcUSDC right now, which may be
+    // ≥ amount but the vault still reverts because its hint is stale.
+    //
+    // Bug we just patched: this endpoint used to skip the redeem when
+    // wrapperReserve covered the request — leaving the vault's
+    // idleAssetsHint at 0 and the user's next withdrawConfidential
+    // reverting with 0x138e37cb (IdleBucketEmpty).
+    const [strategyShares, wrapperReserve, aTokenBalance, idleAssetsHint] = await Promise.all([
       client.readContract({ address: cfg.vault, abi: VAULT_ABI, functionName: "strategySharesByAdapter", args: [onChainAdapter] }) as Promise<bigint>,
       client.readContract({ address: cfg.underlying, abi: ERC20_ABI, functionName: "balanceOf",          args: [cfg.tzcUSDC] }) as Promise<bigint>,
       client.readContract({ address: aToken,    abi: ERC20_ABI, functionName: "balanceOf",               args: [onChainAdapter] }) as Promise<bigint>,
+      client.readContract({ address: cfg.vault, abi: VAULT_ABI, functionName: "idleAssetsHint" }) as Promise<bigint>,
     ]);
-    const idleHint = wrapperReserve; // expose under the same name for the response shape below
 
     if (strategyShares === 0n) {
       return NextResponse.json({
         ok: true, skipped: true,
         reason: "strategy has no shares — nothing to redeem",
-        idleHint: idleHint.toString(),
+        wrapperReserve: wrapperReserve.toString(),
+        idleAssetsHint: idleAssetsHint.toString(),
       }, { status: 200, headers: corsHeaders });
     }
 
     // Compute shares to redeem. The adapter is 1:1 aUSDC — shares == aTokens
-    // == ~USDC, modulo a tiny rebase delta. Convert the user's requested
-    // USDC amount into a share count with a buffer.
+    // == ~USDC, modulo a tiny rebase delta.
     let sharesToRedeem: bigint;
     let amountWei: bigint = 0n;
     if (amountUsdc) {
       amountWei = BigInt(amountUsdc);
-      // Skip if the wrapper reserve already covers the request — the unshield
-      // can pay out directly from existing idle without touching Aave.
-      if (wrapperReserve >= amountWei) {
+      // The vault's revert condition is `strategyShares > 0 &&
+      // idleAssetsHint == 0`. Skip ONLY when BOTH
+      //   (a) the wrapper actually has the USDC to pay out
+      //   (b) the vault's idleAssetsHint is non-zero so its own guard passes
+      // If (a) is true but (b) is false, we MUST still redeem (even a
+      // tiny amount) so the on-chain redeem path bumps the hint above
+      // zero and the user's next withdrawConfidential succeeds.
+      const wrapperCovers = wrapperReserve >= amountWei;
+      const hintOK = idleAssetsHint > 0n;
+      if (wrapperCovers && hintOK) {
         return NextResponse.json({
           ok: true, skipped: true,
-          reason: `wrapperReserve=${wrapperReserve} already covers request=${amountWei}`,
+          reason: `wrapperReserve=${wrapperReserve} covers request=${amountWei} and idleAssetsHint=${idleAssetsHint} is non-zero — vault won't revert`,
           wrapperReserve: wrapperReserve.toString(),
+          idleAssetsHint: idleAssetsHint.toString(),
           strategyShares: strategyShares.toString(),
         }, { status: 200, headers: corsHeaders });
       }
-      // Redeem the actual shortfall plus buffer. Cap at total strategy
-      // shares so we never request more than the adapter holds.
-      const shortfall = amountWei - wrapperReserve;
+      // Either the wrapper is short, or the vault's hint is 0 and
+      // would block the withdraw. Compute shortfall against the LOWER
+      // of (wrapper reserve, hint) so the redeem brings BOTH above
+      // request — wrapper bumps to ≥ request (so unshield can pay),
+      // and the redeem's on-chain accounting bumps idleAssetsHint
+      // above 0 (so the vault stops reverting).
+      const effectiveIdle = wrapperReserve < idleAssetsHint ? wrapperReserve : idleAssetsHint;
+      let shortfall = amountWei > effectiveIdle ? amountWei - effectiveIdle : 0n;
+      // Always redeem at least 1 wei to bump idleAssetsHint above 0 in
+      // the (rare) case where shortfall computes as 0 but hint == 0.
+      if (shortfall === 0n) shortfall = 1n;
       sharesToRedeem = (shortfall * (10000n + REDEEM_BUFFER_BPS)) / 10000n;
       if (sharesToRedeem > strategyShares) sharesToRedeem = strategyShares;
     } else {
