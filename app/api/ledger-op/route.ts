@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { isLedgerEnabled, submitSpend, type SerializedSpendOp } from "@/lib/relayer/ledger";
 import { geofenceResponse } from "@/lib/relayer/geofence";
+import { triggerIndexScan } from "@/lib/relayer/trigger-indexer";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,6 +37,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: auth.error ?? "unauthorized" }, { status: 401, headers: corsHeaders });
     }
     const { txHash } = await submitSpend(chainId, op);
+    // Fire-and-forget indexer refresh so /api/history sees this spend
+    // (and any associated vault_transferred_out / cctp_burn) on the
+    // next read. Failures are swallowed; the user already has the
+    // txHash either way.
+    void triggerIndexScan(chainId, req).catch(() => {});
     return NextResponse.json({ txHash }, { headers: corsHeaders });
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? "submit failed" }, { status: 500, headers: corsHeaders });

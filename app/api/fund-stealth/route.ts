@@ -5,6 +5,7 @@ import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { makeTransport, primaryRpc, RPC_POOLS } from "@/lib/relayer/rpc";
 import { geofenceResponse } from "@/lib/relayer/geofence";
+import { triggerIndexScan } from "@/lib/relayer/trigger-indexer";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,24 +26,6 @@ const CHAINS: Record<number, any> = {
 // Override via FUND_STEALTH_LIMIT env when the threat model demands tighter.
 const FUND_LIMIT = Number(process.env.FUND_STEALTH_LIMIT ?? "500");
 const fundLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-/**
- * Fire-and-forget kick to the indexer trigger. We POST the chain hint so
- * the indexer only scans the chain that just got new activity, not all
- * three. Uses the same Vercel deployment URL — falls back to localhost
- * for dev. Errors are deliberately swallowed by the caller.
- */
-async function triggerIndexScan(chainId: number, req: NextRequest): Promise<void> {
-  const base =
-    process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ??
-    req.nextUrl.origin;
-  await fetch(`${base}/api/index/trigger`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chainId }),
-  });
-}
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders });

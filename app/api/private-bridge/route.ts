@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { relayPrivateBridge, loadConfigFromEnv, type PrivateBridgeRequest } from "@/lib/relayer/relayer";
 import { geofenceResponse } from "@/lib/relayer/geofence";
+import { triggerIndexScans } from "@/lib/relayer/trigger-indexer";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,6 +37,9 @@ export async function POST(req: NextRequest) {
 
     const config = loadConfigFromEnv();
     const result = await relayPrivateBridge(body, config);
+    if (result.success) {
+      void triggerIndexScans([srcChainId, destChainId], req).catch(() => {});
+    }
     return NextResponse.json(result, { status: result.success ? 200 : 400, headers: corsHeaders });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { relayUserOp, loadConfigFromEnv, type UserOperation } from "@/lib/relayer/relayer";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { geofenceResponse } from "@/lib/relayer/geofence";
+import { triggerIndexScan } from "@/lib/relayer/trigger-indexer";
 
 // Rate limiting
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -59,6 +60,12 @@ export async function POST(req: NextRequest) {
 
     const config = loadConfigFromEnv();
     const result = await relayUserOp(userOp, chainId, config);
+    // On a successful relay, kick the indexer so the EntryPoint UserOp
+    // event + any downstream Ledger/Vault events the userOp triggered
+    // land in /api/history within seconds. Failures are swallowed.
+    if (result.success) {
+      void triggerIndexScan(chainId, req).catch(() => {});
+    }
     return NextResponse.json(result, { status: result.success ? 200 : 400, headers: corsHeaders });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

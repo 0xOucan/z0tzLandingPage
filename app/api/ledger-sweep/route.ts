@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { isLedgerEnabled, submitSweepToLedger } from "@/lib/relayer/ledger";
 import { geofenceResponse } from "@/lib/relayer/geofence";
+import { triggerIndexScan } from "@/lib/relayer/trigger-indexer";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: auth.error ?? "unauthorized" }, { status: 401, headers: corsHeaders });
     }
     const { txHash } = await submitSweepToLedger(chainId, call);
+    void triggerIndexScan(chainId, req).catch(() => {});
     return NextResponse.json({ txHash }, { headers: corsHeaders });
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? "submit failed" }, { status: 500, headers: corsHeaders });

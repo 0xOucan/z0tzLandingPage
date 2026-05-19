@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { relayBridge, loadConfigFromEnv, type BridgeRequest } from "@/lib/relayer/relayer";
 import { geofenceResponse } from "@/lib/relayer/geofence";
+import { triggerIndexScans } from "@/lib/relayer/trigger-indexer";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,6 +30,13 @@ export async function POST(req: NextRequest) {
 
     const config = loadConfigFromEnv();
     const result = await relayBridge(body, config);
+    // Kick the indexer on BOTH chains — the src has the CCTP burn, the
+    // dst (eventually) has the mint + any follow-up transfer. One
+    // trigger call per chain; the function instance dedupes if multiple
+    // pile up.
+    if (result.success) {
+      void triggerIndexScans([srcChainId, destChainId], req).catch(() => {});
+    }
     return NextResponse.json(result, { status: result.success ? 200 : 400, headers: corsHeaders });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
