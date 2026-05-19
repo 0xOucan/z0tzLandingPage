@@ -99,72 +99,64 @@ async function handle(req: NextRequest) {
   const stealths = (body.stealths ?? []).map((a) => a.toLowerCase());
   let smartAccounts = (body.smartAccounts ?? []).map((a) => a.toLowerCase());
 
-  // ─── 1. (ownerX, ownerY) → smart account lookup ─────────────────────
-  // If caller provided ownerX + ownerY, fetch all matching smart accounts
-  // across requested chains. These are merged into the smartAccounts set.
-  let smartAccountRows: any[] = [];
-  if (body.ownerX && body.ownerY) {
-    const ownerXNorm = normalizeBig(body.ownerX);
-    const ownerYNorm = normalizeBig(body.ownerY);
-    if (ownerXNorm !== null && ownerYNorm !== null) {
-      const placeholders = chainIds.map(() => "?").join(",");
-      const res = await client().execute({
-        sql: `SELECT chain_id, account_address, owner_x, owner_y, block_number, block_timestamp, tx_hash
-              FROM smart_accounts
-              WHERE owner_x = ? AND owner_y = ?
-                AND chain_id IN (${placeholders})`,
-        args: [ownerXNorm, ownerYNorm, ...chainIds],
-      });
-      smartAccountRows = res.rows.map(rowToObj);
-      for (const r of smartAccountRows) {
-        const addr = (r.account_address as string).toLowerCase();
-        if (!smartAccounts.includes(addr)) smartAccounts.push(addr);
-      }
-    }
-  }
+  // ─── Phase 1: queries that depend only on the request payload ──────
+  // smart_accounts(ownerX/Y), sweep_events, ledger_events, and the
+  // direct-recipient slice of vault_transferred_out are independent.
+  // Run them in parallel to collapse 4 sequential 100-200ms Turso
+  // round-trips into one wall-clock hop.
+  const chainPh = chainIds.map(() => "?").join(",");
+  const ownerXNorm = body.ownerX ? normalizeBig(body.ownerX) : null;
+  const ownerYNorm = body.ownerY ? normalizeBig(body.ownerY) : null;
+  const phase1: Promise<any>[] = [];
+  // 1a: smart accounts by ownerX/Y
+  phase1.push(
+    ownerXNorm !== null && ownerYNorm !== null
+      ? client().execute({
+          sql: `SELECT chain_id, account_address, owner_x, owner_y, block_number, block_timestamp, tx_hash
+                FROM smart_accounts
+                WHERE owner_x = ? AND owner_y = ?
+                  AND chain_id IN (${chainPh})`,
+          args: [ownerXNorm, ownerYNorm, ...chainIds],
+        })
+      : Promise.resolve({ rows: [] as any[] })
+  );
+  // 1b: sweep_events
+  phase1.push(
+    stealths.length > 0
+      ? client().execute({
+          sql: `SELECT * FROM sweep_events
+                WHERE chain_id IN (${chainPh}) AND stealth_address IN (${stealths.map(() => "?").join(",")})
+                ORDER BY block_number DESC`,
+          args: [...chainIds, ...stealths],
+        })
+      : Promise.resolve({ rows: [] as any[] })
+  );
+  // 1c: ledger_events
+  phase1.push(
+    ledgerIds.length > 0
+      ? client().execute({
+          sql: `SELECT * FROM ledger_events
+                WHERE chain_id IN (${chainPh})
+                  AND (ledger_id IN (${ledgerIds.map(() => "?").join(",")})
+                       OR new_ledger_id IN (${ledgerIds.map(() => "?").join(",")}))
+                ORDER BY block_number DESC`,
+          args: [...chainIds, ...ledgerIds, ...ledgerIds],
+        })
+      : Promise.resolve({ rows: [] as any[] })
+  );
+  const [smRes, swRes, leRes] = await Promise.all(phase1);
 
-  // ─── 2. EntryPoint UserOps where sender ∈ ourSmartAccounts ─────────
+  const smartAccountRows: any[] = smRes.rows.map(rowToObj);
+  for (const r of smartAccountRows) {
+    const addr = (r.account_address as string).toLowerCase();
+    if (!smartAccounts.includes(addr)) smartAccounts.push(addr);
+  }
+  const sweeps: any[] = swRes.rows.map(rowToObj);
+  const ledgerEvents: any[] = leRes.rows.map(rowToObj);
+
+  // entrypoint_userops will run in Phase 2 in parallel with the vault
+  // queries — both only need data resolved by Phase 1.
   let entrypointOps: any[] = [];
-  if (smartAccounts.length > 0) {
-    const chainPh = chainIds.map(() => "?").join(",");
-    const saPh = smartAccounts.map(() => "?").join(",");
-    const res = await client().execute({
-      sql: `SELECT * FROM entrypoint_userops
-            WHERE chain_id IN (${chainPh}) AND sender IN (${saPh})
-            ORDER BY block_number DESC`,
-      args: [...chainIds, ...smartAccounts],
-    });
-    entrypointOps = res.rows.map(rowToObj);
-  }
-
-  // ─── 3. Sweeps where stealth ∈ ourStealths ──────────────────────────
-  let sweeps: any[] = [];
-  if (stealths.length > 0) {
-    const chainPh = chainIds.map(() => "?").join(",");
-    const stPh = stealths.map(() => "?").join(",");
-    const res = await client().execute({
-      sql: `SELECT * FROM sweep_events
-            WHERE chain_id IN (${chainPh}) AND stealth_address IN (${stPh})
-            ORDER BY block_number DESC`,
-      args: [...chainIds, ...stealths],
-    });
-    sweeps = res.rows.map(rowToObj);
-  }
-
-  // ─── 4. Ledger events for our ledgerIds (matches either old OR new id)
-  let ledgerEvents: any[] = [];
-  if (ledgerIds.length > 0) {
-    const chainPh = chainIds.map(() => "?").join(",");
-    const idPh = ledgerIds.map(() => "?").join(",");
-    const res = await client().execute({
-      sql: `SELECT * FROM ledger_events
-            WHERE chain_id IN (${chainPh})
-              AND (ledger_id IN (${idPh}) OR new_ledger_id IN (${idPh}))
-            ORDER BY block_number DESC`,
-      args: [...chainIds, ...ledgerIds, ...ledgerIds],
-    });
-    ledgerEvents = res.rows.map(rowToObj);
-  }
 
   // ─── 5. Vault.TransferredOut: TRANSITIVELY EXPANDED ─────────────────
   // The protocol creates ephemeral stealths during cashouts that aren't
@@ -175,19 +167,9 @@ async function handle(req: NextRequest) {
   // Either qualifies the row as user-controlled; the to_addresses from
   // (b) become "ephemeral" addresses that subsequent queries treat as
   // ours.
-  let vaultTransfers: any[] = [];
+  // Both vault_transferred_out slices in parallel — they don't depend
+  // on each other (only on already-resolved inputs).
   const directRecipients = Array.from(new Set([...stealths, ...smartAccounts]));
-  if (directRecipients.length > 0) {
-    const chainPh = chainIds.map(() => "?").join(",");
-    const rPh = directRecipients.map(() => "?").join(",");
-    const res = await client().execute({
-      sql: `SELECT * FROM vault_transferred_out
-            WHERE chain_id IN (${chainPh}) AND to_address IN (${rPh})
-            ORDER BY block_number DESC`,
-      args: [...chainIds, ...directRecipients],
-    });
-    vaultTransfers.push(...res.rows.map(rowToObj));
-  }
   const ledgerSpendTxs = Array.from(
     new Set(
       ledgerEvents
@@ -195,24 +177,42 @@ async function handle(req: NextRequest) {
         .map((e: any) => e.tx_hash as string)
     )
   );
-  if (ledgerSpendTxs.length > 0) {
-    const chainPh = chainIds.map(() => "?").join(",");
-    const tPh = ledgerSpendTxs.map(() => "?").join(",");
-    const res = await client().execute({
-      sql: `SELECT * FROM vault_transferred_out
-            WHERE chain_id IN (${chainPh}) AND tx_hash IN (${tPh})
-            ORDER BY block_number DESC`,
-      args: [...chainIds, ...ledgerSpendTxs],
-    });
-    const seenVt = new Set(
-      vaultTransfers.map((v: any) => `${v.chain_id}:${v.tx_hash}:${v.log_index}`)
-    );
-    for (const r of res.rows.map(rowToObj)) {
-      const k = `${r.chain_id}:${r.tx_hash}:${r.log_index}`;
-      if (!seenVt.has(k)) {
-        vaultTransfers.push(r);
-        seenVt.add(k);
-      }
+  const [vtByAddr, vtByTx, epRes] = await Promise.all([
+    directRecipients.length > 0
+      ? client().execute({
+          sql: `SELECT * FROM vault_transferred_out
+                WHERE chain_id IN (${chainPh}) AND to_address IN (${directRecipients.map(() => "?").join(",")})
+                ORDER BY block_number DESC`,
+          args: [...chainIds, ...directRecipients],
+        })
+      : Promise.resolve({ rows: [] as any[] }),
+    ledgerSpendTxs.length > 0
+      ? client().execute({
+          sql: `SELECT * FROM vault_transferred_out
+                WHERE chain_id IN (${chainPh}) AND tx_hash IN (${ledgerSpendTxs.map(() => "?").join(",")})
+                ORDER BY block_number DESC`,
+          args: [...chainIds, ...ledgerSpendTxs],
+        })
+      : Promise.resolve({ rows: [] as any[] }),
+    smartAccounts.length > 0
+      ? client().execute({
+          sql: `SELECT * FROM entrypoint_userops
+                WHERE chain_id IN (${chainPh}) AND sender IN (${smartAccounts.map(() => "?").join(",")})
+                ORDER BY block_number DESC`,
+          args: [...chainIds, ...smartAccounts],
+        })
+      : Promise.resolve({ rows: [] as any[] }),
+  ]);
+  entrypointOps = epRes.rows.map(rowToObj);
+  let vaultTransfers: any[] = vtByAddr.rows.map(rowToObj);
+  const seenVt = new Set(
+    vaultTransfers.map((v: any) => `${v.chain_id}:${v.tx_hash}:${v.log_index}`)
+  );
+  for (const r of vtByTx.rows.map(rowToObj)) {
+    const k = `${r.chain_id}:${r.tx_hash}:${r.log_index}`;
+    if (!seenVt.has(k)) {
+      vaultTransfers.push(r);
+      seenVt.add(k);
     }
   }
   // Ephemeral set: every vault_transferred_out.to_address that just
