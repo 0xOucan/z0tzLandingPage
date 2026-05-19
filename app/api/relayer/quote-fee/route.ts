@@ -1,26 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { client, ensureSchema, isEnabled as tursoEnabled, getUserDebtMicros } from "@/lib/indexer/turso";
-import { identityRootFor } from "@/lib/relayer/cost-tracker";
+import {
+  ensureSchema,
+  isEnabled as tursoEnabled,
+  getRecentOpCostMedian,
+} from "@/lib/indexer/turso";
 
 /**
- * GET /api/relayer/quote-fee?ownerX=0x…&ownerY=0x…&chainId=84532&grossAmountMicros=19800000
+ * GET /api/relayer/quote-fee
+ *   ?chainId=84532
+ *   &opKind=ledger-sweep             (which on-chain op the user is about to pay for)
+ *   &grossAmountMicros=19800000      (USDC micro-units the user is moving)
+ *   &baseFeeBps=100                  (optional override; default 100 = 1%)
  *
- * Returns the fee the user should sign for at cashout time:
+ * Returns a fee quote the GUI should encode into the sweeper digest:
  *   {
- *     baseFeeBps:        number,   // current sweeper BPS (e.g. 100 for 1%)
- *     debtUsdcMicros:    number,   // accrued op-debt to settle, signed
- *     totalFeeUsdcMicros number,   // baseFee(amount) + debt
- *     effectiveFeeBps:   number,   // ceil(totalFee * 10000 / amount)
- *     etag:              string,   // identityRoot+chainId+amount hash; useful to detect stale quotes
+ *     baseFeeUsdcMicros:   number,   // amount × baseFeeBps / 10000 (ceil)
+ *     overheadUsdcMicros:  number,   // measured op cost × markup (cost-recovery)
+ *     totalFeeUsdcMicros:  number,   // baseFee + overhead
+ *     effectiveFeeBps:     number,   // ceil(total * 10000 / amount) — what the digest signs
+ *     overheadSource:      "median" | "fallback",
  *   }
  *
- * Used by the GUI to display the breakdown to the user BEFORE asking
- * them to sign. The chosen effectiveFeeBps is what the GUI sets in
- * the sweeper digest so the on-chain fee deduction matches what we
- * just quoted.
+ * **Privacy-preserving by construction:** the endpoint takes ZERO
+ * per-user inputs (no ownerX/ownerY, no smart-account address). The
+ * overhead is computed from a rolling median of recent anonymous op
+ * costs in the same chain × op-kind bucket, so the fee covers the
+ * protocol's measured marginal cost regardless of which user is
+ * asking. No row in the indexer DB links a user to their spend.
  *
- * Open endpoint (testnet posture). Data revealed is trivially derivable
- * by the relayer anyway — no privacy gain from gating it.
+ * Markup: default 1.5× (50% margin) so the protocol nets a small
+ * profit even when gas spikes between quote and execution. Override
+ * via QUOTE_OVERHEAD_MARKUP env (e.g., "1.25" for tighter margin).
+ *
+ * Fallback values when the cost log has no data for the bucket:
+ * conservative defaults per op kind, configurable via env.
  */
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,7 +41,30 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-const DEFAULT_BASE_FEE_BPS = 100; // 1% — matches V6.5 sweeper defaults
+// Default base fee in BPS, positioning between Railgun (0.25% one-way,
+// 0.5% round-trip) and the gas-only privacy chains. 25 BPS = 0.25% per
+// op; cash-in + cash-out = 0.5% round-trip, matching Railgun.
+// Operators can override per-deployment via QUOTE_BASE_FEE_BPS env.
+const DEFAULT_BASE_FEE_BPS = Number(process.env.QUOTE_BASE_FEE_BPS ?? "25");
+const DEFAULT_MARKUP = 1.5;
+
+/**
+ * Fallback per-op overhead in USDC micros, used when there's not
+ * enough data in relayer_op_costs for the (chain, op_kind) bucket
+ * yet. Defaults targeting ~$0.02-0.05 per op — in line with
+ * Aztec / Iron Fish, lower than Tornado, materially under any
+ * % fee on a small transfer. Override per-bucket via env.
+ */
+const FALLBACK_OVERHEAD_MICROS: Record<string, number> = {
+  "fund-stealth":    Number(process.env.QUOTE_FALLBACK_USDC_MICROS_FUND_STEALTH ?? "5000"),    // $0.005
+  "ledger-sweep":    Number(process.env.QUOTE_FALLBACK_USDC_MICROS_LEDGER_SWEEP ?? "20000"),   // $0.02
+  "ledger-op":       Number(process.env.QUOTE_FALLBACK_USDC_MICROS_LEDGER_OP ?? "20000"),      // $0.02
+  "relay":           Number(process.env.QUOTE_FALLBACK_USDC_MICROS_RELAY ?? "15000"),          // $0.015
+  "bridge":          Number(process.env.QUOTE_FALLBACK_USDC_MICROS_BRIDGE ?? "30000"),         // $0.03
+  "private-bridge":  Number(process.env.QUOTE_FALLBACK_USDC_MICROS_PRIVATE_BRIDGE ?? "30000"), // $0.03
+  "strategy-deploy": Number(process.env.QUOTE_FALLBACK_USDC_MICROS_STRATEGY_DEPLOY ?? "40000"),// $0.04
+  "strategy-redeem": Number(process.env.QUOTE_FALLBACK_USDC_MICROS_STRATEGY_REDEEM ?? "40000"),// $0.04
+};
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders });
@@ -44,65 +80,56 @@ export async function GET(req: NextRequest) {
   await ensureSchema();
 
   const sp = req.nextUrl.searchParams;
-  const ownerX = sp.get("ownerX") ?? "";
-  const ownerY = sp.get("ownerY") ?? "";
   const chainId = Number(sp.get("chainId") ?? "0");
+  const opKind = sp.get("opKind") ?? "";
   const grossAmountMicros = BigInt(sp.get("grossAmountMicros") ?? "0");
   const baseFeeBps = Number(sp.get("baseFeeBps") ?? String(DEFAULT_BASE_FEE_BPS));
+  const markup = Number(process.env.QUOTE_OVERHEAD_MARKUP ?? String(DEFAULT_MARKUP));
 
-  if (!chainId || grossAmountMicros <= 0n) {
+  if (!chainId || !opKind || grossAmountMicros <= 0n) {
     return NextResponse.json(
-      { error: "missing chainId or grossAmountMicros" },
+      { error: "missing chainId, opKind, or grossAmountMicros" },
       { status: 400, headers: corsHeaders },
     );
   }
 
-  // Identity root — drives the debt lookup. If owner X/Y not given,
-  // assume an anonymous quote and skip debt.
-  let debtUsdcMicros = 0;
-  let identityRoot: string | null = null;
-  if (ownerX && ownerY) {
-    try {
-      identityRoot = identityRootFor(ownerX, ownerY);
-      debtUsdcMicros = await getUserDebtMicros(identityRoot, chainId);
-    } catch (e: any) {
-      return NextResponse.json(
-        { error: `bad owner: ${e?.message ?? e}` },
-        { status: 400, headers: corsHeaders },
-      );
-    }
+  // Measured median cost for this op kind on this chain.
+  const medianMicros = await getRecentOpCostMedian(chainId, opKind, 20);
+  let overheadUsdcMicros: number;
+  let overheadSource: "median" | "fallback";
+  if (medianMicros > 0) {
+    overheadUsdcMicros = Math.ceil(medianMicros * markup);
+    overheadSource = "median";
+  } else {
+    overheadUsdcMicros = FALLBACK_OVERHEAD_MICROS[opKind] ?? 20_000;
+    overheadSource = "fallback";
   }
 
-  // Compute base fee in USDC micros: ceil(amount * bps / 10000).
+  // Base BPS fee on the amount.
   const ceilDiv = (a: bigint, b: bigint): bigint => (a + b - 1n) / b;
-  const baseFeeMicros = Number(
-    ceilDiv(grossAmountMicros * BigInt(baseFeeBps), 10_000n),
-  );
-  // Debt is added on top. If debt is negative (credit), it reduces the
-  // fee — but we floor the fee at the base BPS to avoid free cashouts.
-  const totalFeeUsdcMicros = Math.max(baseFeeMicros, baseFeeMicros + debtUsdcMicros);
-  // Effective bps: round UP so the on-chain fee deduction never falls
-  // short of what we quoted. Sweeper uses floor BPS math, but the
-  // user signs the digest with feeBps = ceiledBps, so the actual fee
-  // sent is `amount * ceiledBps / 10000` ≥ totalFeeUsdcMicros.
+  const baseFeeMicros = Number(ceilDiv(grossAmountMicros * BigInt(baseFeeBps), 10_000n));
+  const totalFeeUsdcMicros = baseFeeMicros + overheadUsdcMicros;
+
+  // What feeBps the user must sign in the digest so the on-chain
+  // floor-BPS deduction nets at least totalFeeUsdcMicros.
   const effectiveFeeBps =
     grossAmountMicros > 0n
-      ? Number(
-          ceilDiv(BigInt(totalFeeUsdcMicros) * 10_000n, grossAmountMicros),
-        )
+      ? Number(ceilDiv(BigInt(totalFeeUsdcMicros) * 10_000n, grossAmountMicros))
       : 0;
 
   return NextResponse.json(
     {
       ok: true,
-      identityRoot,
       chainId,
+      opKind,
       grossAmountMicros: grossAmountMicros.toString(),
       baseFeeBps,
       baseFeeUsdcMicros: baseFeeMicros,
-      debtUsdcMicros,
+      overheadUsdcMicros,
+      overheadSource,
       totalFeeUsdcMicros,
       effectiveFeeBps,
+      markup,
     },
     { headers: corsHeaders },
   );

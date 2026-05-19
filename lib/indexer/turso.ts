@@ -187,21 +187,21 @@ export async function ensureSchema(): Promise<void> {
           PRIMARY KEY (chain_id, watched_address, event_type)
         )`,
 
-        // ─── Relayer per-op costs (audit log) ───────────────────────────
-        // Every chain-writing relayer endpoint records the on-chain gas
-        // spent against the user that initiated the op. Used to track
-        // protocol operating costs and to compute the per-user debt that
-        // gets settled on next cashout.
+        // ─── Relayer per-op costs (anonymous audit log) ─────────────────
+        // Every chain-writing relayer op records its gas cost so the
+        // protocol can measure operating expenses and tune fees. The
+        // log is INTENTIONALLY anonymous: no user identifier is stored.
         //
-        // identity_root is keccak(ownerX || ownerY) when the op is
-        // attributable to a passkey-known user; null when the op is
-        // unattributable (e.g., strategy-deploy is operational, not per
-        // user). Unattributed costs still land in the table so we can
-        // measure them; just don't show up in user_debt.
+        // Privacy posture: linking a user identifier (keccak(ownerX,
+        // ownerY) or smart-account address) to plaintext USDC spend
+        // would recreate exactly the financial-profile leak that the
+        // encrypted ledger protects against. Instead, we recover cost
+        // per-op at fee-quote time — the protocol still profits, but
+        // no row in this DB binds a user identity to their spend
+        // history.
         `CREATE TABLE IF NOT EXISTS relayer_op_costs (
           chain_id INTEGER NOT NULL,
           tx_hash TEXT NOT NULL,
-          identity_root TEXT,
           op_kind TEXT NOT NULL,
           gas_used INTEGER NOT NULL,
           effective_gas_price TEXT NOT NULL,
@@ -211,23 +211,6 @@ export async function ensureSchema(): Promise<void> {
           status INTEGER NOT NULL,
           recorded_at INTEGER NOT NULL,
           PRIMARY KEY (chain_id, tx_hash)
-        )`,
-
-        // ─── Per-user accrued debt ──────────────────────────────────────
-        // Running balance of protocol gas costs the user has accrued
-        // but not yet settled. Decremented when a cashout deducts the
-        // debt as part of its plaintext USDC fee.
-        //
-        // identity_root = keccak(ownerX || ownerY) — anonymous user
-        // id, the same one used in relayer_op_costs.
-        //
-        // balance_usdc_micros: signed int (negative = credit/overpayment).
-        `CREATE TABLE IF NOT EXISTS user_debt (
-          identity_root TEXT NOT NULL,
-          chain_id INTEGER NOT NULL,
-          balance_usdc_micros INTEGER NOT NULL,
-          last_op_at INTEGER NOT NULL,
-          PRIMARY KEY (identity_root, chain_id)
         )`,
 
         // ─── Indexes for fast user-facing queries ──────────────────────
@@ -373,12 +356,11 @@ const CHAIN_TO_CCTP_DOMAIN: Record<number, number> = {
   84532: 6,    // base-sepolia
 };
 
-// ─── Cost-tracking helpers (relayer_op_costs + user_debt) ──────────────
+// ─── Cost-tracking helpers (anonymous audit log) ──────────────────────
 
 export interface OpCostRow {
   chainId: number;
   txHash: string;
-  identityRoot: string | null;
   opKind: string;
   gasUsed: number;
   effectiveGasPrice: string;
@@ -389,26 +371,22 @@ export interface OpCostRow {
 }
 
 /**
- * Persist a single relayer op's cost. Idempotent on (chain_id, tx_hash)
- * so repeated calls (e.g., from a retry) collapse to one row. Updates
- * the user_debt running balance if identity_root is set.
+ * Persist a single relayer op's cost. Idempotent on (chain_id, tx_hash).
+ * NO user identity is stored — the row exists purely so the protocol
+ * can audit operating costs and tune fees, with zero linkage from
+ * USDC spend to a specific user.
  */
 export async function recordOpCost(row: OpCostRow): Promise<void> {
   await ensureSchema();
-  const now = Date.now();
-  const c = client();
-  // INSERT OR IGNORE keeps the first observation; if a later trigger
-  // tries to record the same tx_hash we don't double-charge.
-  const insertRes = await c.execute({
+  await client().execute({
     sql: `INSERT OR IGNORE INTO relayer_op_costs
-            (chain_id, tx_hash, identity_root, op_kind, gas_used,
+            (chain_id, tx_hash, op_kind, gas_used,
              effective_gas_price, eth_spent, eth_usd_at_record,
              usdc_cost_micros, status, recorded_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       row.chainId,
       row.txHash.toLowerCase(),
-      row.identityRoot,
       row.opKind,
       row.gasUsed,
       row.effectiveGasPrice,
@@ -416,59 +394,33 @@ export async function recordOpCost(row: OpCostRow): Promise<void> {
       row.ethUsdAtRecord,
       row.usdcCostMicros,
       row.status,
-      now,
+      Date.now(),
     ],
   });
-  // Only debit the user if the row was actually inserted (rowsAffected=1).
-  // INSERT OR IGNORE returns 0 if the PK already existed — that means
-  // we already charged this tx and shouldn't double-charge.
-  if (row.identityRoot && Number(insertRes.rowsAffected ?? 0) === 1) {
-    await c.execute({
-      sql: `INSERT INTO user_debt (identity_root, chain_id, balance_usdc_micros, last_op_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(identity_root, chain_id) DO UPDATE SET
-              balance_usdc_micros = balance_usdc_micros + excluded.balance_usdc_micros,
-              last_op_at = excluded.last_op_at`,
-      args: [row.identityRoot, row.chainId, row.usdcCostMicros, now],
-    });
-  }
 }
 
 /**
- * Read the user's outstanding debt for a single chain (used by the
- * quote-fee endpoint and the cashout flow).
+ * Rolling median USDC cost for an op kind on a chain, used by the
+ * quote-fee endpoint to set the per-op overhead. Looks at the last N
+ * successful rows. Returns 0 if not enough data — the caller should
+ * fall back to a config default.
  */
-export async function getUserDebtMicros(
-  identityRoot: string,
-  chainId: number
+export async function getRecentOpCostMedian(
+  chainId: number,
+  opKind: string,
+  lookbackN: number = 20,
 ): Promise<number> {
   await ensureSchema();
   const res = await client().execute({
-    sql: `SELECT balance_usdc_micros FROM user_debt
-          WHERE identity_root = ? AND chain_id = ?`,
-    args: [identityRoot, chainId],
+    sql: `SELECT usdc_cost_micros FROM relayer_op_costs
+          WHERE chain_id = ? AND op_kind = ? AND status = 1
+          ORDER BY recorded_at DESC LIMIT ?`,
+    args: [chainId, opKind, lookbackN],
   });
-  return res.rows.length === 0 ? 0 : Number(res.rows[0].balance_usdc_micros);
-}
-
-/**
- * Settle debt after a cashout includes it in the on-chain fee. Pass a
- * positive amount to decrement (credit the user); negative to increment.
- */
-export async function settleUserDebt(
-  identityRoot: string,
-  chainId: number,
-  settlementUsdcMicros: number
-): Promise<void> {
-  await ensureSchema();
-  await client().execute({
-    sql: `INSERT INTO user_debt (identity_root, chain_id, balance_usdc_micros, last_op_at)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(identity_root, chain_id) DO UPDATE SET
-            balance_usdc_micros = balance_usdc_micros - excluded.balance_usdc_micros,
-            last_op_at = excluded.last_op_at`,
-    args: [identityRoot, chainId, settlementUsdcMicros, Date.now()],
-  });
+  if (res.rows.length === 0) return 0;
+  const arr = res.rows.map((r: any) => Number(r.usdc_cost_micros)).sort((a, b) => a - b);
+  const mid = Math.floor(arr.length / 2);
+  return arr.length % 2 === 0 ? Math.floor((arr[mid - 1] + arr[mid]) / 2) : arr[mid];
 }
 
 export async function getStealthWatchlist(chainId: number): Promise<

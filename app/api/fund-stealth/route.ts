@@ -118,8 +118,6 @@ export async function POST(req: NextRequest) {
       chainId,
       txHash: hash as `0x${string}`,
       opKind: "fund-stealth",
-      ownerXHex: req.headers.get("x-z0tz-pubx") ?? undefined,
-      ownerYHex: req.headers.get("x-z0tz-puby") ?? undefined,
       req,
     });
 

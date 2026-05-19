@@ -41,8 +41,6 @@ export async function POST(req: NextRequest) {
       chainId,
       txHash: txHash as `0x${string}`,
       opKind: "ledger-sweep",
-      ownerXHex: req.headers.get("x-z0tz-pubx") ?? undefined,
-      ownerYHex: req.headers.get("x-z0tz-puby") ?? undefined,
       req,
     });
     return NextResponse.json({ txHash }, { headers: corsHeaders });
