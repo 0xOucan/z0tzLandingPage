@@ -5,7 +5,7 @@
  * on-chain data (commitments, routing, amounts that are already public);
  * never any secret.
  */
-import { createPublicClient, http, decodeEventLog, parseAbiItem, toEventSelector, type AbiEvent, type Address } from "viem";
+import { createPublicClient, http, decodeEventLog, parseAbiItem, toEventSelector, pad, type AbiEvent, type Address } from "viem";
 import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
 import { getLogsPaginated, type EtherscanLog } from "./etherscan";
 import * as db from "./turso-v7";
@@ -22,6 +22,7 @@ const EV = {
   subdomainClaimed: parseAbiItem("event SubdomainClaimed(bytes32 indexed parentNameHash, bytes32 indexed leafNameHash, bytes32 indexed pubkeyHash, address resolvedAccount)") as AbiEvent,
   claimed: parseAbiItem("event Claimed(bytes32 indexed pubkeyHash, address indexed account, uint256 amount)") as AbiEvent,
   feeRecorded: parseAbiItem("event FeeRecorded(address indexed account, bytes32 indexed opKind, address indexed token, uint64 baseAmount, uint64 protocolFee, uint64 gasReimbursed, uint64 timestamp)") as AbiEvent,
+  transfer: parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)") as AbiEvent,
 } as const;
 
 interface LogMeta { block: number; ts: number; txHash: string; logIndex: number; }
@@ -110,5 +111,39 @@ export async function indexV7Chain(chainId: number, d: V7Deployment, opts?: { st
       } catch { /* skip undecodable / mismatched logs */ }
     }
     await db.setScanState(chainId, src.address, src.key, head);
+  }
+  await indexStealthInbound(chainId, d, { startBlock: startFallback, deadline });
+}
+
+/** Deterministic-stealth inbound scan: for every watched stealth, find ERC-20
+ *  Transfers TO it on the registered tokens (zUSDC + USDC) and record them so
+ *  the GUI/relayer can surface "you received X" without polling. Same address
+ *  on every chain, so this runs per-chain across the watchlist. */
+export async function indexStealthInbound(chainId: number, d: V7Deployment, opts?: { startBlock?: number; deadline?: number }): Promise<void> {
+  await db.ensureSchema();
+  const watchlist = await db.getWatchlist();
+  if (watchlist.length === 0) return;
+  const head = await headBlock(chainId);
+  const topic0 = toEventSelector(EV.transfer);
+  const tokens = [d.zusdc, d.usdc].filter(Boolean) as Address[];
+  const startFallback = opts?.startBlock ?? Number(process.env[`DEPLOY_BLOCK_V7_${chainId}`] ?? 0);
+
+  for (const token of tokens) {
+    for (const w of watchlist) {
+      if (opts?.deadline && Date.now() > opts.deadline) return;
+      const key = `inbound:${w.stealthAddress}`;
+      const last = await db.getLastScanBlock(chainId, token, key);
+      const from = last > 0 ? last + 1 : startFallback;
+      if (from > head) continue;
+      const logs = await getLogsPaginated({ chainId, address: token, fromBlock: from, toBlock: head, topic0, topic2: pad(w.stealthAddress as Address, { size: 32 }), deadline: opts?.deadline });
+      for (const l of logs ?? []) {
+        try {
+          const { args } = decodeEventLog({ abi: [EV.transfer], data: l.data as `0x${string}`, topics: l.topics as any });
+          const m = meta(l);
+          await db.recordInbound({ chainId, stealthAddress: w.stealthAddress, token, from: String((args as any).from), amount: String((args as any).value), block: m.block, txHash: m.txHash, logIndex: m.logIndex, ts: m.ts });
+        } catch { /* skip */ }
+      }
+      await db.setScanState(chainId, token, key, head);
+    }
   }
 }

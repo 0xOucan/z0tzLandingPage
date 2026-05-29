@@ -165,9 +165,79 @@ export async function ensureSchema(): Promise<void> {
         ts INTEGER NOT NULL,
         PRIMARY KEY (chain_id, tx_hash, log_index)
       )`,
+
+      // Deterministic-stealth watchlist: the public stealth addresses to scan
+      // for inbound funds. Populated by the client (it derives the address and
+      // registers the PUBLIC address only — no key). Scanned on EVERY chain.
+      `CREATE TABLE IF NOT EXISTS stealth_watch_v7 (
+        stealth_address TEXT PRIMARY KEY,
+        pubkey_hash TEXT NOT NULL,
+        idx INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )`,
+
+      // Inbound ERC-20 transfers TO a watched stealth (per chain), so the GUI
+      // can show "you received X on chain Y" without polling every RPC, then
+      // offer a one-tap sweep. `swept` flips once cashed in.
+      `CREATE TABLE IF NOT EXISTS stealth_inbound_v7 (
+        chain_id INTEGER NOT NULL,
+        stealth_address TEXT NOT NULL,
+        token TEXT NOT NULL,
+        from_addr TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        block INTEGER NOT NULL,
+        tx_hash TEXT NOT NULL,
+        log_index INTEGER NOT NULL,
+        ts INTEGER NOT NULL,
+        swept INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (chain_id, tx_hash, log_index)
+      )`,
     ],
   );
   _schemaReady = true;
+}
+
+// ── Stealth watchlist + inbound (deterministic-stealth discovery) ─────────
+
+export async function watchStealth(pubkeyHash: string, stealthAddress: string, idx = 0): Promise<void> {
+  await ensureSchema();
+  await client().execute({
+    sql: `INSERT OR IGNORE INTO stealth_watch_v7 (stealth_address, pubkey_hash, idx, created_at) VALUES (?,?,?,?)`,
+    args: [stealthAddress.toLowerCase(), pubkeyHash, idx, Date.now()],
+  });
+}
+
+export async function getWatchlist(): Promise<{ stealthAddress: string; pubkeyHash: string; idx: number }[]> {
+  await ensureSchema();
+  const r = await client().execute(`SELECT stealth_address, pubkey_hash, idx FROM stealth_watch_v7`);
+  return r.rows.map((row) => ({ stealthAddress: row.stealth_address as string, pubkeyHash: row.pubkey_hash as string, idx: Number(row.idx) }));
+}
+
+export async function recordInbound(row: {
+  chainId: number; stealthAddress: string; token: string; from: string; amount: string;
+  block: number; txHash: string; logIndex: number; ts: number;
+}): Promise<void> {
+  await ensureSchema();
+  await client().execute({
+    sql: `INSERT OR IGNORE INTO stealth_inbound_v7 (chain_id, stealth_address, token, from_addr, amount, block, tx_hash, log_index, ts) VALUES (?,?,?,?,?,?,?,?,?)`,
+    args: [row.chainId, row.stealthAddress.toLowerCase(), row.token.toLowerCase(), row.from.toLowerCase(), row.amount, row.block, row.txHash, row.logIndex, row.ts],
+  });
+}
+
+/** All inbound funds for a user's stealth addresses (unswept first). */
+export async function getInboundForPubkey(pubkeyHash: string): Promise<any[]> {
+  await ensureSchema();
+  const r = await client().execute({
+    sql: `SELECT i.* FROM stealth_inbound_v7 i JOIN stealth_watch_v7 w ON i.stealth_address = w.stealth_address
+          WHERE w.pubkey_hash = ? ORDER BY i.swept ASC, i.block DESC`,
+    args: [pubkeyHash],
+  });
+  return r.rows;
+}
+
+export async function markSwept(chainId: number, txHash: string, logIndex: number): Promise<void> {
+  await ensureSchema();
+  await client().execute({ sql: `UPDATE stealth_inbound_v7 SET swept = 1 WHERE chain_id = ? AND tx_hash = ? AND log_index = ?`, args: [chainId, txHash, logIndex] });
 }
 
 // ── Encrypted recovery artifact (the only user-data write) ───────────────
