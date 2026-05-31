@@ -3,6 +3,7 @@
 import { BatLogo } from "./bat-logo"
 
 const links = [
+  { label: "Android APK", url: "https://github.com/0xOucan/z0tzWalletAPK/releases/tag/v1.0.0" },
   { label: "GitHub", url: "https://github.com/0xOucan/Z0tz" },
   { label: "X/Twitter", url: "https://x.com/0xoucan" },
 ]

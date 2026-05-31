@@ -4,6 +4,7 @@ import { WhySection } from "@/components/z0tz/why-section"
 import { ComposabilitySection } from "@/components/z0tz/composability-section"
 import { DiagramsSection } from "@/components/z0tz/diagrams-section"
 import { TestnetSection } from "@/components/z0tz/testnet-section"
+import { DownloadSection } from "@/components/z0tz/download-section"
 import { DevelopersSection } from "@/components/z0tz/developers-section"
 import { HonestSection } from "@/components/z0tz/honest-section"
 import { ComplianceSection } from "@/components/z0tz/compliance-section"
@@ -22,6 +23,7 @@ import { Footer } from "@/components/z0tz/footer"
  *   Composability → how it fits with existing infra
  *   Diagrams      → see the flows
  *   Testnet       → try it yourself
+ *   Download      → experimental Android APK (signed)
  *   Developers    → [collapsed] CLI / contracts / relayer API
  *   Roadmap       → what's next
  */
@@ -37,6 +39,7 @@ export default function Home() {
       <ComposabilitySection />
       <DiagramsSection />
       <TestnetSection />
+      <DownloadSection />
       <DevelopersSection />
       <RoadmapSection />
       <Footer />

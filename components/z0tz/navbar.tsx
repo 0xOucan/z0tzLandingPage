@@ -29,6 +29,12 @@ export function Navbar() {
         </a>
         <div className="flex items-center gap-5">
           <a
+            href="/#download"
+            className="hidden sm:inline text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Android
+          </a>
+          <a
             href="/technical"
             className="hidden sm:inline text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
           >

@@ -49,7 +49,16 @@ export function HeroSection() {
           >
             Try Demo →
           </a>
+          <a
+            href="#download"
+            className="glow-hover border border-primary bg-primary text-primary-foreground px-8 py-3 text-sm uppercase tracking-widest font-medium transition-all duration-200 hover:bg-primary/90"
+          >
+            Get the APK ↓
+          </a>
         </div>
+        <p className="mt-4 text-xs uppercase tracking-widest text-muted-foreground animate-fade-in-up animation-delay-400">
+          Experimental Android build · testnet only
+        </p>
       </div>
     </section>
   )
