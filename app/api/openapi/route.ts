@@ -5,6 +5,13 @@ import { generateV7Spec } from "@/lib/openapi/registry";
 // when imported. Listing them here is what makes them appear in the spec.
 import "@/lib/openapi/schemas-v7";
 import "@/app/api/v7/spend/route";
+import "@/app/api/v7/airdrop/route";
+import "@/app/api/v7/cashin/route";
+import "@/app/api/v7/names/route";
+import "@/app/api/v7/recover/route";
+import "@/app/api/v7/recover/artifact/route";
+import "@/app/api/v7/stealth/watch/route";
+import "@/app/api/v7/stealth/inbound/route";
 
 /**
  * Generated OpenAPI 3.1 specification of the /api/v7/* surface.
