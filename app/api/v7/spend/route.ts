@@ -2,33 +2,99 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyRelayerAuth } from "@/lib/relayer/auth";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { isEnabled, submitSpend, type SpendReq } from "@/lib/relayer/v7";
+import {
+  ErrorResponseSchema,
+  SpendReqSchema,
+  TxHashResponseSchema,
+} from "@/lib/openapi/schemas-v7";
+import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Z0tz-PubX, X-Z0tz-PubY, X-Z0tz-Sig",
-};
+// ── OpenAPI registration (side-effect on module import) ─────────────────
+//
+// Reference template for the other 6 V7 routes — same shape:
+//   1. registerPath with the request body's zod schema + response schemas.
+//   2. Use SAME schema for runtime validation inside POST.
+// docs (generated) and behavior (runtime) literally share the source of
+// truth, so they cannot drift.
+v7Registry.registerPath({
+  method: "post",
+  path: "/api/v7/spend",
+  tags: ["user-tier"],
+  summary: "Relay a signed ledger spend (cashout, internal, cross-chain)",
+  description:
+    "Submits a P-256-signed SpendOp to Z0tzLedgerV7 on the destination chain. " +
+    "The relayer pays gas. The user authenticates per-call by signing the body " +
+    "with their passkey (X-Z0tz-Sig header).",
+  security: [{ passkey: [] }],
+  request: {
+    body: {
+      required: true,
+      content: { "application/json": { schema: SpendReqSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Submitted; returns the tx hash on the destination chain.",
+      content: { "application/json": { schema: TxHashResponseSchema } },
+    },
+    400: {
+      description: "Malformed body or missing required fields.",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Passkey-signature auth failed.",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    503: {
+      description: "Relayer disabled (env-flag off).",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+// ── Route handlers ──────────────────────────────────────────────────────
 
 export async function OPTIONS() {
-  return new NextResponse(null, { status: 200, headers: corsHeaders });
+  return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
 export async function POST(req: NextRequest) {
-  const blocked = geofenceResponse(req, corsHeaders);
+  const blocked = geofenceResponse(req, v7CorsHeaders);
   if (blocked) return blocked;
-  if (!isEnabled()) return NextResponse.json({ error: "relayer-disabled" }, { status: 503, headers: corsHeaders });
+  if (!isEnabled())
+    return NextResponse.json({ error: "relayer-disabled" }, { status: 503, headers: v7CorsHeaders });
   try {
-    const body = await req.json();
-    const { chainId, op } = body as { chainId: number; op: SpendReq };
-    if (!chainId || !op) return NextResponse.json({ error: "missing chainId or op" }, { status: 400, headers: corsHeaders });
+    const rawBody = await req.json();
+    // Runtime validation via the SAME zod schema that drives the OpenAPI
+    // spec — no drift possible between docs and behavior.
+    const parsed = SpendReqSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") },
+        { status: 400, headers: v7CorsHeaders },
+      );
+    }
+    const { chainId, op } = parsed.data;
     const auth = verifyRelayerAuth(
-      { "x-z0tz-pubx": req.headers.get("x-z0tz-pubx") ?? undefined, "x-z0tz-puby": req.headers.get("x-z0tz-puby") ?? undefined, "x-z0tz-sig": req.headers.get("x-z0tz-sig") ?? undefined },
-      body, false,
+      {
+        "x-z0tz-pubx": req.headers.get("x-z0tz-pubx") ?? undefined,
+        "x-z0tz-puby": req.headers.get("x-z0tz-puby") ?? undefined,
+        "x-z0tz-sig": req.headers.get("x-z0tz-sig") ?? undefined,
+      },
+      rawBody,
+      false,
     );
-    if (!auth.authenticated) return NextResponse.json({ error: auth.error ?? "unauthorized" }, { status: 401, headers: corsHeaders });
-    const { txHash } = await submitSpend(chainId, op);
-    return NextResponse.json({ txHash }, { headers: corsHeaders });
+    if (!auth.authenticated)
+      return NextResponse.json(
+        { error: auth.error ?? "unauthorized" },
+        { status: 401, headers: v7CorsHeaders },
+      );
+    const { txHash } = await submitSpend(chainId, op as unknown as SpendReq);
+    return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message ?? "submit failed" }, { status: 500, headers: corsHeaders });
+    return NextResponse.json(
+      { error: e.message ?? "submit failed" },
+      { status: 500, headers: v7CorsHeaders },
+    );
   }
 }

@@ -9,6 +9,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^7.3.4",
     "@hookform/resolvers": "^3.9.1",
     "@libsql/client": "^0.17.3",
     "@noble/curves": "^2.2.0",
@@ -60,6 +61,7 @@
     "react-resizable-panels": "^2.1.7",
     "recharts": "2.15.0",
     "sonner": "^1.7.1",
+    "swagger-ui-dist": "^5.32.6",
     "tailwind-merge": "^3.3.1",
     "vaul": "^1.1.2",
     "viem": "^2.47.6",
