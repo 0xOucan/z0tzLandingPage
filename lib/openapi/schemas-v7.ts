@@ -208,3 +208,52 @@ export const StealthInboundRowSchema = z
 export const StealthInboundResponseSchema = z
   .object({ inbound: z.array(StealthInboundRowSchema) })
   .openapi("StealthInboundResponse");
+
+// ── /api/v7/org/* — B2B SaaS admin surface ──────────────────────────────
+
+/**
+ * Org-admin-signed claim of a subdomain under the caller's root. The
+ * server scope-checks that `parentNameHash` matches the API key's
+ * `subdomainRootHash` — even with a valid key you cannot onboard under
+ * someone else's subdomain.
+ *
+ * The P-256 signature is over the names contract's claimSubdomainFor
+ * digest (chainid, registry, ADMIN_CLAIM_SUB_TAG, parentNameHash,
+ * leafNameHash, userPubkeyHash, userResolvedAccount, adminPubkeyHash,
+ * rootNonce, deadline). The relayer submits the tx; gas is on Z0tz.
+ */
+export const OrgClaimSubdomainReqSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    claim: z
+      .object({
+        parentNameHash: Bytes32Schema.openapi({
+          description:
+            "Must equal the API key's subdomainRootHash. Server-side scope check.",
+        }),
+        leafNameHash: Bytes32Schema.openapi({
+          description: "Hash of the new subdomain being claimed (e.g. arturo.coppel.z0tz)",
+        }),
+        userPubX: BigIntStr.openapi({ description: "Onboarded user's P-256 pubkey X" }),
+        userPubY: BigIntStr,
+        userResolvedAccount: AddressSchema.openapi({
+          description: "Smart-account address the subdomain resolves to",
+        }),
+        adminPubX: BigIntStr.openapi({ description: "Org admin's P-256 pubkey X" }),
+        adminPubY: BigIntStr,
+        deadline: BigIntStr.openapi({ description: "Unix seconds; sig expires after" }),
+        sigR: BigIntStr.openapi({ description: "Admin P-256 signature r" }),
+        sigS: BigIntStr,
+      })
+      .openapi("OrgSubdomainClaim"),
+  })
+  .openapi("OrgClaimSubdomainRequest");
+
+export const OrgScopedErrorSchema = z
+  .object({
+    error: z.string(),
+    code: z
+      .enum(["unauthorized", "scope_mismatch", "validation_failed", "relayer_disabled", "submit_failed"])
+      .optional(),
+  })
+  .openapi("OrgScopedError");

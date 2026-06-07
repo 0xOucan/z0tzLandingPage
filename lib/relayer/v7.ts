@@ -67,8 +67,20 @@ const airdropAbi = [{ name: "claim", type: "function", stateMutability: "nonpaya
   inputs: [{ name: "pubX", type: "uint256" }, { name: "pubY", type: "uint256" }, { name: "nonce", type: "bytes32" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" }], outputs: [] }] as const;
 const sweeperAbi = [{ name: "privateSweepToLedger", type: "function", stateMutability: "nonpayable",
   inputs: [{ name: "stealthAddress", type: "address" }, { name: "token", type: "address" }, { name: "account", type: "address" }, { name: "viewer", type: "address" }, { name: "nonce", type: "uint256" }, { name: "amount", type: "uint64" }, { name: "deadline", type: "uint256" }, { name: "signature", type: "bytes" }], outputs: [] }] as const;
-const namesAbi = [{ name: "claim", type: "function", stateMutability: "nonpayable",
-  inputs: [{ name: "nameHash", type: "bytes32" }, { name: "nameLength", type: "uint256" }, { name: "pubX", type: "uint256" }, { name: "pubY", type: "uint256" }, { name: "resolvedAccount", type: "address" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" }], outputs: [] }] as const;
+const namesAbi = [
+  { name: "claim", type: "function", stateMutability: "nonpayable",
+    inputs: [{ name: "nameHash", type: "bytes32" }, { name: "nameLength", type: "uint256" }, { name: "pubX", type: "uint256" }, { name: "pubY", type: "uint256" }, { name: "resolvedAccount", type: "address" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" }], outputs: [] },
+  // Phase 1 B2B: admin-signed onboarding of a user under a subdomain root.
+  // The contract validates the admin's P-256 sig + the rootNonce + deadline.
+  { name: "claimSubdomainFor", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "parentNameHash", type: "bytes32" }, { name: "leafNameHash", type: "bytes32" },
+      { name: "userPubX", type: "uint256" }, { name: "userPubY", type: "uint256" },
+      { name: "userResolvedAccount", type: "address" },
+      { name: "adminPubX", type: "uint256" }, { name: "adminPubY", type: "uint256" },
+      { name: "deadline", type: "uint64" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" },
+    ], outputs: [] },
+] as const;
 const hubAbi = [
   { name: "initiateRecovery", type: "function", stateMutability: "nonpayable", inputs: [{ name: "account", type: "address" }, { name: "methodIndex", type: "uint256" }, { name: "newOwnerX", type: "uint256" }, { name: "newOwnerY", type: "uint256" }, { name: "proof", type: "bytes" }], outputs: [{ type: "uint256" }] },
   { name: "executeRecovery", type: "function", stateMutability: "nonpayable", inputs: [{ name: "recoveryId", type: "uint256" }], outputs: [] },
@@ -123,6 +135,27 @@ export async function submitNameClaim(chainId: number, r: NameClaimReq): Promise
   const args = [r.nameHash, BigInt(r.nameLength), BigInt(r.pubX), BigInt(r.pubY), r.resolvedAccount, BigInt(r.sigR), BigInt(r.sigS)] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, account }, 400_000n);
   return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, gas } as any) };
+}
+
+// ── B2B SaaS: org admin ops ──────────────────────────────────────────────
+
+export interface OrgClaimSubdomainReq {
+  parentNameHash: Hex; leafNameHash: Hex;
+  userPubX: string; userPubY: string; userResolvedAccount: Address;
+  adminPubX: string; adminPubY: string;
+  deadline: string; sigR: string; sigS: string;
+}
+
+export async function submitOrgClaimSubdomain(chainId: number, r: OrgClaimSubdomainReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [
+    r.parentNameHash, r.leafNameHash,
+    BigInt(r.userPubX), BigInt(r.userPubY), r.userResolvedAccount,
+    BigInt(r.adminPubX), BigInt(r.adminPubY),
+    BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
+  ] as const;
+  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, account }, 600_000n);
+  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, gas } as any) };
 }
 
 export async function submitRecoverInitiate(chainId: number, r: { account: Address; methodIndex: string; newOwnerX: string; newOwnerY: string; proof: Hex }): Promise<{ txHash: Hex }> {

@@ -192,6 +192,45 @@ export async function ensureSchema(): Promise<void> {
         swept INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (chain_id, tx_hash, log_index)
       )`,
+
+      // B2B SaaS — issued HMAC API keys. One row per (org, key); a key is
+      // identified by its 8-char public prefix (`key_id`) so we never have
+      // to scan all bcrypt hashes on a request. The full key plaintext is
+      // returned ONCE at issuance and never stored — we keep only its
+      // bcrypt hash + metadata. `subdomain_root_hash` scopes every authed
+      // call to a single org.
+      //
+      //   key shape (client-visible): "z0tz_<key_id>_<secret>"  (≥ 40 chars total)
+      //   bcrypt covers: <key_id>_<secret>
+      //
+      // `revoked_at` = null when active; non-null marks it dead. We never
+      // hard-delete so audit logs can still resolve a key_id → org.
+      `CREATE TABLE IF NOT EXISTS org_keys (
+        key_id TEXT PRIMARY KEY,
+        org_name TEXT NOT NULL,
+        subdomain_root_hash TEXT NOT NULL,
+        bcrypt_hash TEXT NOT NULL,
+        tier TEXT NOT NULL DEFAULT 'sandbox',
+        contact_email TEXT,
+        created_at INTEGER NOT NULL,
+        revoked_at INTEGER
+      )`,
+
+      // Append-only audit log of every /api/v7/org/* call. Keyed by the
+      // authenticated org's key_id (NOT the plaintext key). The dashboard
+      // reads this to show "who did what" + the org's own usage.
+      // Stores REQUEST METADATA only — never request bodies (which can carry
+      // user PII like resolved-account addresses).
+      `CREATE TABLE IF NOT EXISTS org_audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key_id TEXT NOT NULL,
+        method TEXT NOT NULL,
+        path TEXT NOT NULL,
+        status_code INTEGER NOT NULL,
+        ts INTEGER NOT NULL,
+        ip_hash TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_org_audit_log_key_ts ON org_audit_log(key_id, ts DESC)`,
     ],
   );
   _schemaReady = true;
@@ -324,4 +363,148 @@ export async function setScanState(chainId: number, contract: string, eventType:
             last_block_scanned=excluded.last_block_scanned, last_scanned_at=excluded.last_scanned_at`,
     args: [chainId, contract.toLowerCase(), eventType, lastBlock, Date.now()],
   });
+}
+
+// ── B2B SaaS — org HMAC API keys ─────────────────────────────────────────
+
+export interface OrgKeyMeta {
+  key_id: string;
+  org_name: string;
+  subdomain_root_hash: string;
+  tier: string;
+  contact_email: string | null;
+  created_at: number;
+  revoked_at: number | null;
+}
+
+export interface IssuedKey extends OrgKeyMeta {
+  /** Plaintext key. Returned ONCE at issuance — never stored. */
+  plaintext: string;
+}
+
+/**
+ * Issue a fresh HMAC API key for an org. Returns the plaintext ONCE — the
+ * caller (the Z0tz super-admin dashboard) shows it to ops once and then
+ * loses it forever; the server stores only the bcrypt hash + metadata.
+ *
+ * Key shape: `z0tz_<8-char key_id>_<32-char secret>`. The key_id is a
+ * public lookup handle so authenticateOrgKey is O(1) — we never have to
+ * scan all bcrypt hashes per request.
+ */
+export async function issueOrgKey(args: {
+  orgName: string;
+  subdomainRootHash: string;
+  tier?: string;
+  contactEmail?: string | null;
+}): Promise<IssuedKey> {
+  await ensureSchema();
+  // node:crypto is available in Next.js server runtimes.
+  const { randomBytes } = await import("node:crypto");
+  const bcrypt = await import("bcryptjs");
+  const keyId = randomBytes(4).toString("hex"); // 8 chars
+  const secret = randomBytes(16).toString("hex"); // 32 chars
+  const plaintext = `z0tz_${keyId}_${secret}`;
+  // bcrypt covers (key_id + secret), excluding the "z0tz_" prefix — same
+  // entropy, smaller hash input.
+  const bcryptHash = await bcrypt.hash(`${keyId}_${secret}`, 12);
+  const created = Date.now();
+  await client().execute({
+    sql: `INSERT INTO org_keys
+            (key_id, org_name, subdomain_root_hash, bcrypt_hash, tier, contact_email, created_at, revoked_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+    args: [
+      keyId,
+      args.orgName,
+      args.subdomainRootHash.toLowerCase(),
+      bcryptHash,
+      args.tier ?? "sandbox",
+      args.contactEmail ?? null,
+      created,
+    ],
+  });
+  return {
+    key_id: keyId,
+    org_name: args.orgName,
+    subdomain_root_hash: args.subdomainRootHash.toLowerCase(),
+    tier: args.tier ?? "sandbox",
+    contact_email: args.contactEmail ?? null,
+    created_at: created,
+    revoked_at: null,
+    plaintext,
+  };
+}
+
+/** Mark an org key revoked. */
+export async function revokeOrgKey(keyId: string): Promise<void> {
+  await ensureSchema();
+  await client().execute({
+    sql: `UPDATE org_keys SET revoked_at = ? WHERE key_id = ? AND revoked_at IS NULL`,
+    args: [Date.now(), keyId],
+  });
+}
+
+/**
+ * Authenticate an `X-Z0tz-Org-Key` header value. Returns the org metadata on
+ * success, null otherwise. The check is O(1) (single PRIMARY KEY lookup on
+ * `key_id`) followed by a bcrypt compare on the secret half.
+ */
+export async function authenticateOrgKey(headerValue: string | null | undefined): Promise<OrgKeyMeta | null> {
+  if (!headerValue) return null;
+  const m = headerValue.match(/^z0tz_([a-f0-9]{8})_([a-f0-9]{32})$/);
+  if (!m) return null;
+  const [, keyId, secret] = m;
+  await ensureSchema();
+  const r = await client().execute({
+    sql: `SELECT * FROM org_keys WHERE key_id = ? LIMIT 1`,
+    args: [keyId],
+  });
+  const row = r.rows[0];
+  if (!row) return null;
+  if (row.revoked_at !== null) return null;
+  const bcrypt = await import("bcryptjs");
+  const ok = await bcrypt.compare(`${keyId}_${secret}`, row.bcrypt_hash as string);
+  if (!ok) return null;
+  return {
+    key_id: row.key_id as string,
+    org_name: row.org_name as string,
+    subdomain_root_hash: row.subdomain_root_hash as string,
+    tier: row.tier as string,
+    contact_email: (row.contact_email as string | null) ?? null,
+    created_at: Number(row.created_at),
+    revoked_at: row.revoked_at === null ? null : Number(row.revoked_at),
+  };
+}
+
+/** Append an audit-log row. Stores REQUEST METADATA only — never bodies. */
+export async function logOrgRequest(args: {
+  keyId: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  ipHash?: string | null;
+}): Promise<void> {
+  await ensureSchema();
+  await client().execute({
+    sql: `INSERT INTO org_audit_log (key_id, method, path, status_code, ts, ip_hash)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+    args: [args.keyId, args.method, args.path, args.statusCode, Date.now(), args.ipHash ?? null],
+  });
+}
+
+/** List orgs (for the super-admin dashboard). */
+export async function listOrgKeys(): Promise<OrgKeyMeta[]> {
+  await ensureSchema();
+  const r = await client().execute({
+    sql: `SELECT * FROM org_keys ORDER BY created_at DESC`,
+    args: [],
+  });
+  return r.rows.map((row) => ({
+    key_id: row.key_id as string,
+    org_name: row.org_name as string,
+    subdomain_root_hash: row.subdomain_root_hash as string,
+    tier: row.tier as string,
+    contact_email: (row.contact_email as string | null) ?? null,
+    created_at: Number(row.created_at),
+    revoked_at: row.revoked_at === null ? null : Number(row.revoked_at),
+  }));
 }
