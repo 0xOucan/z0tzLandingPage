@@ -249,6 +249,104 @@ export const OrgClaimSubdomainReqSchema = z
   })
   .openapi("OrgClaimSubdomainRequest");
 
+/**
+ * Org-admin-signed repoint of an already-claimed subdomain leaf to a new
+ * user pubkey + resolved account. The contract enforces the admin sig
+ * via `parent.pubkeyHash == keccak256(adminPubX, adminPubY)`; the API
+ * key proves the caller is the right org. We do NOT scope-check the
+ * parent on the API side (the request only carries the leaf hash) — the
+ * parent.adminPubkey check on-chain is the authoritative gate.
+ */
+export const OrgRepointSubdomainReqSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    claim: z
+      .object({
+        leafNameHash: Bytes32Schema.openapi({ description: "Subdomain leaf being repointed" }),
+        newUserPubX: BigIntStr.openapi({ description: "New user P-256 pubkey X" }),
+        newUserPubY: BigIntStr,
+        newResolvedAccount: AddressSchema.openapi({ description: "New smart-account the leaf resolves to" }),
+        adminPubX: BigIntStr.openapi({ description: "Org admin's P-256 pubkey X" }),
+        adminPubY: BigIntStr,
+        deadline: BigIntStr,
+        sigR: BigIntStr,
+        sigS: BigIntStr,
+      })
+      .openapi("OrgSubdomainRepoint"),
+  })
+  .openapi("OrgRepointSubdomainRequest");
+
+/**
+ * Org-admin-signed revoke of a subdomain leaf. Same scope model as
+ * repoint: on-chain parent.adminPubkey check is authoritative; the API
+ * key proves the caller is the right org.
+ */
+export const OrgRevokeSubdomainReqSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    claim: z
+      .object({
+        leafNameHash: Bytes32Schema,
+        adminPubX: BigIntStr,
+        adminPubY: BigIntStr,
+        deadline: BigIntStr,
+        sigR: BigIntStr,
+        sigS: BigIntStr,
+      })
+      .openapi("OrgSubdomainRevoke"),
+  })
+  .openapi("OrgRevokeSubdomainRequest");
+
+/**
+ * Org-admin-signed attach of a policy contract to the org's subdomain
+ * root. API-side scope check: `claim.rootNameHash` MUST equal the API
+ * key's `subdomainRootHash` — a policy can only be set on this org's
+ * root.
+ */
+export const OrgSetPolicyReqSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    claim: z
+      .object({
+        rootNameHash: Bytes32Schema.openapi({
+          description: "Must equal the API key's subdomainRootHash. Server-side scope check.",
+        }),
+        policy: AddressSchema.openapi({ description: "Deployed policy contract address" }),
+        adminPubX: BigIntStr,
+        adminPubY: BigIntStr,
+        deadline: BigIntStr,
+        sigR: BigIntStr,
+        sigS: BigIntStr,
+      })
+      .openapi("OrgSetPolicyClaim"),
+  })
+  .openapi("OrgSetPolicyRequest");
+
+/**
+ * Org-admin-signed `initiateOrgRecovery` on the recovery hub. The hub
+ * derives the org root + admin pubkey from `nameRegistry.orgRootOfAccount`,
+ * so the API-side cannot pre-scope without an extra contract call. The
+ * API key still proves the caller is the right org; the chain enforces
+ * admin sig + policy delay.
+ */
+export const OrgInitiateRecoveryReqSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    claim: z
+      .object({
+        account: AddressSchema.openapi({ description: "User smart-account being recovered" }),
+        newOwnerX: BigIntStr,
+        newOwnerY: BigIntStr,
+        adminPubX: BigIntStr,
+        adminPubY: BigIntStr,
+        deadline: BigIntStr,
+        sigR: BigIntStr,
+        sigS: BigIntStr,
+      })
+      .openapi("OrgInitiateRecoveryClaim"),
+  })
+  .openapi("OrgInitiateRecoveryRequest");
+
 export const OrgScopedErrorSchema = z
   .object({
     error: z.string(),

@@ -80,10 +80,37 @@ const namesAbi = [
       { name: "adminPubX", type: "uint256" }, { name: "adminPubY", type: "uint256" },
       { name: "deadline", type: "uint64" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" },
     ], outputs: [] },
+  { name: "repointSubdomain", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "leafNameHash", type: "bytes32" },
+      { name: "newUserPubX", type: "uint256" }, { name: "newUserPubY", type: "uint256" },
+      { name: "newResolvedAccount", type: "address" },
+      { name: "adminPubX", type: "uint256" }, { name: "adminPubY", type: "uint256" },
+      { name: "deadline", type: "uint64" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" },
+    ], outputs: [] },
+  { name: "revokeSubdomain", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "leafNameHash", type: "bytes32" },
+      { name: "adminPubX", type: "uint256" }, { name: "adminPubY", type: "uint256" },
+      { name: "deadline", type: "uint64" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" },
+    ], outputs: [] },
+  { name: "setPolicy", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "rootNameHash", type: "bytes32" }, { name: "policy", type: "address" },
+      { name: "adminPubX", type: "uint256" }, { name: "adminPubY", type: "uint256" },
+      { name: "deadline", type: "uint64" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" },
+    ], outputs: [] },
 ] as const;
 const hubAbi = [
   { name: "initiateRecovery", type: "function", stateMutability: "nonpayable", inputs: [{ name: "account", type: "address" }, { name: "methodIndex", type: "uint256" }, { name: "newOwnerX", type: "uint256" }, { name: "newOwnerY", type: "uint256" }, { name: "proof", type: "bytes" }], outputs: [{ type: "uint256" }] },
   { name: "executeRecovery", type: "function", stateMutability: "nonpayable", inputs: [{ name: "recoveryId", type: "uint256" }], outputs: [] },
+  { name: "initiateOrgRecovery", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "newOwnerX", type: "uint256" }, { name: "newOwnerY", type: "uint256" },
+      { name: "adminPubX", type: "uint256" }, { name: "adminPubY", type: "uint256" },
+      { name: "deadline", type: "uint64" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" },
+    ], outputs: [{ type: "uint256" }] },
 ] as const;
 const inEuint64 = { name: "amount", type: "tuple", components: [{ name: "ctHash", type: "uint256" }, { name: "securityZone", type: "uint8" }, { name: "utype", type: "uint8" }, { name: "signature", type: "bytes" }] } as const;
 const ledgerAbi = [{ name: "spend", type: "function", stateMutability: "nonpayable",
@@ -156,6 +183,74 @@ export async function submitOrgClaimSubdomain(chainId: number, r: OrgClaimSubdom
   ] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, account }, 600_000n);
   return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, gas } as any) };
+}
+
+export interface OrgRepointSubdomainReq {
+  leafNameHash: Hex;
+  newUserPubX: string; newUserPubY: string; newResolvedAccount: Address;
+  adminPubX: string; adminPubY: string;
+  deadline: string; sigR: string; sigS: string;
+}
+export async function submitOrgRepointSubdomain(chainId: number, r: OrgRepointSubdomainReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [
+    r.leafNameHash,
+    BigInt(r.newUserPubX), BigInt(r.newUserPubY), r.newResolvedAccount,
+    BigInt(r.adminPubX), BigInt(r.adminPubY),
+    BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
+  ] as const;
+  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "repointSubdomain", args, account }, 500_000n);
+  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "repointSubdomain", args, gas } as any) };
+}
+
+export interface OrgRevokeSubdomainReq {
+  leafNameHash: Hex;
+  adminPubX: string; adminPubY: string;
+  deadline: string; sigR: string; sigS: string;
+}
+export async function submitOrgRevokeSubdomain(chainId: number, r: OrgRevokeSubdomainReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [
+    r.leafNameHash,
+    BigInt(r.adminPubX), BigInt(r.adminPubY),
+    BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
+  ] as const;
+  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "revokeSubdomain", args, account }, 400_000n);
+  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "revokeSubdomain", args, gas } as any) };
+}
+
+export interface OrgSetPolicyReq {
+  rootNameHash: Hex; policy: Address;
+  adminPubX: string; adminPubY: string;
+  deadline: string; sigR: string; sigS: string;
+}
+export async function submitOrgSetPolicy(chainId: number, r: OrgSetPolicyReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [
+    r.rootNameHash, r.policy,
+    BigInt(r.adminPubX), BigInt(r.adminPubY),
+    BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
+  ] as const;
+  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "setPolicy", args, account }, 400_000n);
+  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "setPolicy", args, gas } as any) };
+}
+
+export interface OrgInitiateRecoveryReq {
+  account: Address;
+  newOwnerX: string; newOwnerY: string;
+  adminPubX: string; adminPubY: string;
+  deadline: string; sigR: string; sigS: string;
+}
+export async function submitOrgInitiateRecovery(chainId: number, r: OrgInitiateRecoveryReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [
+    r.account,
+    BigInt(r.newOwnerX), BigInt(r.newOwnerY),
+    BigInt(r.adminPubX), BigInt(r.adminPubY),
+    BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
+  ] as const;
+  const gas = await estimateOrFallback(pub, { address: d.recoveryHub, abi: hubAbi, functionName: "initiateOrgRecovery", args, account }, 700_000n);
+  return { txHash: await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "initiateOrgRecovery", args, gas } as any) };
 }
 
 export async function submitRecoverInitiate(chainId: number, r: { account: Address; methodIndex: string; newOwnerX: string; newOwnerY: string; proof: Hex }): Promise<{ txHash: Hex }> {

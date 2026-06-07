@@ -13,6 +13,10 @@ import "@/app/api/v7/recover/artifact/route";
 import "@/app/api/v7/stealth/watch/route";
 import "@/app/api/v7/stealth/inbound/route";
 import "@/app/api/v7/org/subdomain/route";
+import "@/app/api/v7/org/subdomain/repoint/route";
+import "@/app/api/v7/org/subdomain/revoke/route";
+import "@/app/api/v7/org/policy/route";
+import "@/app/api/v7/org/recover/route";
 
 /**
  * Generated OpenAPI 3.1 specification of the /api/v7/* surface.
