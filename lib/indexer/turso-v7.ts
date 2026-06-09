@@ -491,6 +491,41 @@ export async function logOrgRequest(args: {
   });
 }
 
+export interface OrgUsageWindow {
+  /** Inclusive lower bound — only audit-log rows with ts >= sinceMs counted. */
+  sinceMs: number;
+  /** Total successful billable calls (status 2xx). */
+  ok: number;
+  /** Validation failures (400 / 422). Counted but typically not billed. */
+  badRequest: number;
+  /** Server errors (5xx). Not billed. */
+  serverError: number;
+  /** Total calls regardless of outcome. */
+  total: number;
+}
+
+/** Per-key usage roll-up since `sinceMs`. Drives the org dashboard +
+ *  the per-tier rate-limit checks. Pure read of org_audit_log; the
+ *  table is the billing meter. */
+export async function getOrgUsage(keyId: string, sinceMs: number): Promise<OrgUsageWindow> {
+  await ensureSchema();
+  const r = await client().execute({
+    sql: `SELECT status_code, COUNT(*) as n FROM org_audit_log
+          WHERE key_id = ? AND ts >= ?
+          GROUP BY status_code`,
+    args: [keyId, sinceMs],
+  });
+  let ok = 0, badRequest = 0, serverError = 0;
+  for (const row of r.rows) {
+    const status = Number(row.status_code);
+    const n = Number(row.n);
+    if (status >= 200 && status < 300) ok += n;
+    else if (status >= 400 && status < 500) badRequest += n;
+    else if (status >= 500) serverError += n;
+  }
+  return { sinceMs, ok, badRequest, serverError, total: ok + badRequest + serverError };
+}
+
 /** List orgs (for the super-admin dashboard). */
 export async function listOrgKeys(): Promise<OrgKeyMeta[]> {
   await ensureSchema();

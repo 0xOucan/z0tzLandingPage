@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { watchStealth } from "@/lib/indexer/turso-v7";
+import { requireOrgAuth } from "@/lib/relayer/org-auth";
 import {
   ErrorResponseSchema,
   StealthWatchReqSchema,
@@ -48,19 +49,25 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
+  const authResult = await requireOrgAuth(req, v7CorsHeaders);
+  if (authResult instanceof NextResponse) return authResult;
+  const { finalize } = authResult;
   try {
     const rawBody = await req.json();
     const parsed = StealthWatchReqSchema.safeParse(rawBody);
     if (!parsed.success) {
+      await finalize(400);
       return NextResponse.json(
-        { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") },
+        { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), code: "validation_failed" },
         { status: 400, headers: v7CorsHeaders },
       );
     }
     const { pubkeyHash, address, index } = parsed.data;
     await watchStealth(pubkeyHash, address, Number(index ?? 0));
+    await finalize(200);
     return NextResponse.json({ ok: true }, { headers: v7CorsHeaders });
   } catch (e: any) {
+    await finalize(500);
     return NextResponse.json(
       { error: e.message ?? "watch failed" },
       { status: 500, headers: v7CorsHeaders },

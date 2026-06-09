@@ -19,6 +19,7 @@ import "@/app/api/v7/org/policy/route";
 import "@/app/api/v7/org/recover/route";
 import "@/app/api/v7/scan/route";
 import "@/app/api/v7/paymaster/cosign/route";
+import "@/app/api/v7/org/usage/route";
 
 /**
  * Generated OpenAPI 3.1 specification of the /api/v7/* surface.

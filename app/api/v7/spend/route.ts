@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyRelayerAuth } from "@/lib/relayer/auth";
+import { requireOrgAuth } from "@/lib/relayer/org-auth";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { isEnabled, submitSpend, type SpendReq } from "@/lib/relayer/v7";
 import {
@@ -63,35 +63,25 @@ export async function POST(req: NextRequest) {
   if (blocked) return blocked;
   if (!isEnabled())
     return NextResponse.json({ error: "relayer-disabled" }, { status: 503, headers: v7CorsHeaders });
+  const authResult = await requireOrgAuth(req, v7CorsHeaders);
+  if (authResult instanceof NextResponse) return authResult;
+  const { finalize } = authResult;
   try {
     const rawBody = await req.json();
-    // Runtime validation via the SAME zod schema that drives the OpenAPI
-    // spec — no drift possible between docs and behavior.
     const parsed = SpendReqSchema.safeParse(rawBody);
     if (!parsed.success) {
+      await finalize(400);
       return NextResponse.json(
-        { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") },
+        { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), code: "validation_failed" },
         { status: 400, headers: v7CorsHeaders },
       );
     }
     const { chainId, op } = parsed.data;
-    const auth = verifyRelayerAuth(
-      {
-        "x-z0tz-pubx": req.headers.get("x-z0tz-pubx") ?? undefined,
-        "x-z0tz-puby": req.headers.get("x-z0tz-puby") ?? undefined,
-        "x-z0tz-sig": req.headers.get("x-z0tz-sig") ?? undefined,
-      },
-      rawBody,
-      false,
-    );
-    if (!auth.authenticated)
-      return NextResponse.json(
-        { error: auth.error ?? "unauthorized" },
-        { status: 401, headers: v7CorsHeaders },
-      );
     const { txHash } = await submitSpend(chainId, op as unknown as SpendReq);
+    await finalize(200);
     return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
   } catch (e: any) {
+    await finalize(500);
     return NextResponse.json(
       { error: e.message ?? "submit failed" },
       { status: 500, headers: v7CorsHeaders },
