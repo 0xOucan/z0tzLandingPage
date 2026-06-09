@@ -111,6 +111,10 @@ export const SpendOpSchema = z
     destAddress: AddressSchema.openapi({ description: "Used on Cashout/CC-Cashout" }),
     destChainId: z.number().int().openapi({ description: "Non-zero on CC-* actions" }),
     amount: InEuint64Schema,
+    // F-6 fix: SpendOp on-chain has plainAmount (uint64) between amount and
+    // nonce. Internal paths pass "0"; cashout paths pass the matching
+    // unshield amount (audit C-2 binds plaintext to the signed digest).
+    plainAmount: BigIntStr.openapi({ description: "0 for Internal; matching unshield amount for Cashout" }),
     nonce: BigIntStr,
     deadline: BigIntStr,
     pkX: BigIntStr,

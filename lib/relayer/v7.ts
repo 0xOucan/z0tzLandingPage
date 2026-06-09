@@ -12,15 +12,31 @@
  */
 import { createPublicClient, createWalletClient, http, type Address, type Hex, type Chain } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
+import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { makeTransport } from "./rpc";
+// F-6 was the wakeup call: maintaining the same wire shapes in two places
+// (landing + cli-v7) guarantees drift. The SDK is now the single source of
+// truth for every request/response interface. Submitter logic stays local
+// because it holds the operator private key — a strictly server concern.
+export type {
+  AirdropClaimReq, SweepReq, SpendReq, NameClaimReq,
+  OrgClaimSubdomainReq, OrgRepointSubdomainReq, OrgRevokeSubdomainReq,
+  OrgSetPolicyReq, OrgInitiateRecoveryReq,
+  RecoverInitiateReq, RecoverExecuteReq,
+  EncryptedArtifact, StealthWatchReq, StealthInboundResponse, StealthInboundRow,
+  InEuint64,
+} from "@z0tz/sdk-v7";
 
+/** Server-side deployment shape — same fields as the SDK's V7Deployment
+ *  but with optional flags on infra-only contracts that old testnet
+ *  deployments may not have written into the env JSON. */
 export interface V7Deployment {
   ledger: Address; sweeper: Address; airdropClaim: Address; nameRegistry: Address;
   recoveryHub: Address; vault: Address; zusdc: Address; usdc: Address;
   tokenRegistry: Address; paymaster: Address; entryPoint: Address;
   internalBridge?: Address; mockYieldStrategy?: Address; timedVault?: Address;
   emergencyKeyMethod?: Address; guardianQuorumMethod?: Address;
+  policyFactory?: Address;
 }
 
 function chainFor(chainId: number): Chain {
@@ -28,6 +44,7 @@ function chainFor(chainId: number): Chain {
     case 84532: return baseSepolia;
     case 11155111: return sepolia;
     case 421614: return arbitrumSepolia;
+    case 31337: return hardhat; // local hardhat node + cofhe mocks (PoC)
     default: throw new Error(`Unsupported chainId: ${chainId}`);
   }
 }
@@ -117,47 +134,57 @@ const ledgerAbi = [{ name: "spend", type: "function", stateMutability: "nonpayab
   inputs: [{ name: "op", type: "tuple", components: [
     { name: "account", type: "address" }, { name: "token", type: "address" }, { name: "action", type: "uint8" },
     { name: "destAccount", type: "address" }, { name: "destAddress", type: "address" }, { name: "destChainId", type: "uint32" },
-    inEuint64, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
+    inEuint64,
+    // F-6 fix: contract's SpendOp has a uint64 plainAmount between amount
+    // and nonce (audit C-2: binds plaintext to the signed digest so the
+    // policy hook + vault verification catch sender lies about cashout
+    // amounts). Internal paths pass 0; cashout paths pass the matching
+    // unshield amount. Missing here meant every spend reverted with a
+    // "function selector not recognized" mismatch.
+    { name: "plainAmount", type: "uint64" },
+    { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
     { name: "pkX", type: "uint256" }, { name: "pkY", type: "uint256" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" },
   ] }], outputs: [] }] as const;
 
-// ── Serialized request shapes (CLI/GUI send bigints as strings) ──────────
-export interface AirdropClaimReq { pubX: string; pubY: string; nonce: Hex; sigR: string; sigS: string; }
-export interface SweepReq { stealthAddress: Address; token: Address; account: Address; viewer: Address; nonce: string; amount: string; deadline: string; signature: Hex; }
-export interface SpendReq {
-  account: Address; token: Address; action: number; destAccount: Address; destAddress: Address; destChainId: number;
-  amount: { ctHash: string; securityZone: number; utype: number; signature: Hex };
-  nonce: string; deadline: string; pkX: string; pkY: string; sigR: string; sigS: string;
-}
-export interface NameClaimReq { nameHash: Hex; nameLength: string; pubX: string; pubY: string; resolvedAccount: Address; sigR: string; sigS: string; }
+// (Request shapes now imported from @z0tz/sdk-v7 — top of file. Submitters
+//  below take those typed shapes directly. F-6 prevention: there's only
+//  ONE place to update an interface now, and the SDK's `digest.test.ts`
+//  catches any encoded-shape drift before it can ship.)
+import type {
+  AirdropClaimReq as _AirdropReq, SweepReq as _SweepReq, SpendReq as _SpendReq,
+  NameClaimReq as _NameReq, OrgClaimSubdomainReq as _OrgClaimSubReq,
+  OrgRepointSubdomainReq as _OrgRepointReq, OrgRevokeSubdomainReq as _OrgRevokeReq,
+  OrgSetPolicyReq as _OrgSetPolicyReq, OrgInitiateRecoveryReq as _OrgRecReq,
+} from "@z0tz/sdk-v7";
 
 // ── Submitters ───────────────────────────────────────────────────────────
-export async function submitAirdropClaim(chainId: number, r: AirdropClaimReq): Promise<{ txHash: Hex }> {
+export async function submitAirdropClaim(chainId: number, r: _AirdropReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [BigInt(r.pubX), BigInt(r.pubY), r.nonce, BigInt(r.sigR), BigInt(r.sigS)] as const;
   const gas = await estimateOrFallback(pub, { address: d.airdropClaim, abi: airdropAbi, functionName: "claim", args, account }, 300_000n);
   return { txHash: await wallet.writeContract({ address: d.airdropClaim, abi: airdropAbi, functionName: "claim", args, gas } as any) };
 }
 
-export async function submitSweep(chainId: number, r: SweepReq): Promise<{ txHash: Hex }> {
+export async function submitSweep(chainId: number, r: _SweepReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.stealthAddress, r.token, r.account, r.viewer, BigInt(r.nonce), BigInt(r.amount), BigInt(r.deadline), r.signature] as const;
   const gas = await estimateOrFallback(pub, { address: d.sweeper, abi: sweeperAbi, functionName: "privateSweepToLedger", args, account }, 800_000n);
   return { txHash: await wallet.writeContract({ address: d.sweeper, abi: sweeperAbi, functionName: "privateSweepToLedger", args, gas } as any) };
 }
 
-export async function submitSpend(chainId: number, r: SpendReq): Promise<{ txHash: Hex }> {
+export async function submitSpend(chainId: number, r: _SpendReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const op = {
     account: r.account, token: r.token, action: r.action, destAccount: r.destAccount, destAddress: r.destAddress, destChainId: r.destChainId,
     amount: { ctHash: BigInt(r.amount.ctHash), securityZone: r.amount.securityZone, utype: r.amount.utype, signature: r.amount.signature },
+    plainAmount: BigInt(r.plainAmount ?? "0"),
     nonce: BigInt(r.nonce), deadline: BigInt(r.deadline), pkX: BigInt(r.pkX), pkY: BigInt(r.pkY), sigR: BigInt(r.sigR), sigS: BigInt(r.sigS),
   };
   const gas = await estimateOrFallback(pub, { address: d.ledger, abi: ledgerAbi, functionName: "spend", args: [op as any], account }, 1_200_000n);
   return { txHash: await wallet.writeContract({ address: d.ledger, abi: ledgerAbi, functionName: "spend", args: [op as any], gas } as any) };
 }
 
-export async function submitNameClaim(chainId: number, r: NameClaimReq): Promise<{ txHash: Hex }> {
+export async function submitNameClaim(chainId: number, r: _NameReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.nameHash, BigInt(r.nameLength), BigInt(r.pubX), BigInt(r.pubY), r.resolvedAccount, BigInt(r.sigR), BigInt(r.sigS)] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, account }, 400_000n);
@@ -165,15 +192,9 @@ export async function submitNameClaim(chainId: number, r: NameClaimReq): Promise
 }
 
 // ── B2B SaaS: org admin ops ──────────────────────────────────────────────
+// (Request interfaces re-exported from @z0tz/sdk-v7 — top of file.)
 
-export interface OrgClaimSubdomainReq {
-  parentNameHash: Hex; leafNameHash: Hex;
-  userPubX: string; userPubY: string; userResolvedAccount: Address;
-  adminPubX: string; adminPubY: string;
-  deadline: string; sigR: string; sigS: string;
-}
-
-export async function submitOrgClaimSubdomain(chainId: number, r: OrgClaimSubdomainReq): Promise<{ txHash: Hex }> {
+export async function submitOrgClaimSubdomain(chainId: number, r: _OrgClaimSubReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [
     r.parentNameHash, r.leafNameHash,
@@ -185,13 +206,7 @@ export async function submitOrgClaimSubdomain(chainId: number, r: OrgClaimSubdom
   return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, gas } as any) };
 }
 
-export interface OrgRepointSubdomainReq {
-  leafNameHash: Hex;
-  newUserPubX: string; newUserPubY: string; newResolvedAccount: Address;
-  adminPubX: string; adminPubY: string;
-  deadline: string; sigR: string; sigS: string;
-}
-export async function submitOrgRepointSubdomain(chainId: number, r: OrgRepointSubdomainReq): Promise<{ txHash: Hex }> {
+export async function submitOrgRepointSubdomain(chainId: number, r: _OrgRepointReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [
     r.leafNameHash,
@@ -203,12 +218,7 @@ export async function submitOrgRepointSubdomain(chainId: number, r: OrgRepointSu
   return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "repointSubdomain", args, gas } as any) };
 }
 
-export interface OrgRevokeSubdomainReq {
-  leafNameHash: Hex;
-  adminPubX: string; adminPubY: string;
-  deadline: string; sigR: string; sigS: string;
-}
-export async function submitOrgRevokeSubdomain(chainId: number, r: OrgRevokeSubdomainReq): Promise<{ txHash: Hex }> {
+export async function submitOrgRevokeSubdomain(chainId: number, r: _OrgRevokeReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [
     r.leafNameHash,
@@ -219,12 +229,7 @@ export async function submitOrgRevokeSubdomain(chainId: number, r: OrgRevokeSubd
   return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "revokeSubdomain", args, gas } as any) };
 }
 
-export interface OrgSetPolicyReq {
-  rootNameHash: Hex; policy: Address;
-  adminPubX: string; adminPubY: string;
-  deadline: string; sigR: string; sigS: string;
-}
-export async function submitOrgSetPolicy(chainId: number, r: OrgSetPolicyReq): Promise<{ txHash: Hex }> {
+export async function submitOrgSetPolicy(chainId: number, r: _OrgSetPolicyReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [
     r.rootNameHash, r.policy,
@@ -235,13 +240,7 @@ export async function submitOrgSetPolicy(chainId: number, r: OrgSetPolicyReq): P
   return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "setPolicy", args, gas } as any) };
 }
 
-export interface OrgInitiateRecoveryReq {
-  account: Address;
-  newOwnerX: string; newOwnerY: string;
-  adminPubX: string; adminPubY: string;
-  deadline: string; sigR: string; sigS: string;
-}
-export async function submitOrgInitiateRecovery(chainId: number, r: OrgInitiateRecoveryReq): Promise<{ txHash: Hex }> {
+export async function submitOrgInitiateRecovery(chainId: number, r: _OrgRecReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [
     r.account,

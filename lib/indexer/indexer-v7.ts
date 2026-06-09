@@ -6,7 +6,7 @@
  * never any secret.
  */
 import { createPublicClient, http, decodeEventLog, parseAbiItem, toEventSelector, pad, type AbiEvent, type Address } from "viem";
-import { baseSepolia, sepolia, arbitrumSepolia } from "viem/chains";
+import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { getLogsPaginated, type EtherscanLog } from "./etherscan";
 import * as db from "./turso-v7";
 import type { V7Deployment } from "../relayer/v7";
@@ -39,6 +39,7 @@ function chainFor(chainId: number) {
     case 84532: return baseSepolia;
     case 11155111: return sepolia;
     case 421614: return arbitrumSepolia;
+    case 31337: return hardhat;
     default: throw new Error(`Unsupported chainId: ${chainId}`);
   }
 }

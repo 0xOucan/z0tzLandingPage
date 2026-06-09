@@ -110,6 +110,9 @@ importers:
       '@vercel/analytics':
         specifier: 1.6.1
         version: 1.6.1(next@16.2.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
+      '@z0tz/sdk-v7':
+        specifier: file:/home/oucan/EVVM/FHE/Z0tz/sdk-v7
+        version: file:../Z0tz/sdk-v7(viem@2.52.2(typescript@5.7.3)(zod@3.25.76))
       autoprefixer:
         specifier: ^10.4.20
         version: 10.5.0(postcss@8.5.15)
@@ -1420,6 +1423,12 @@ packages:
         optional: true
       vue-router:
         optional: true
+
+  '@z0tz/sdk-v7@file:../Z0tz/sdk-v7':
+    resolution: {directory: ../Z0tz/sdk-v7, type: directory}
+    engines: {node: '>=18'}
+    peerDependencies:
+      viem: ^2.38.6
 
   abitype@1.2.3:
     resolution: {integrity: sha512-Ofer5QUnuUdTFsBRwARMoWKOH1ND5ehwYhJ3OJ/BQO+StkwQjHw0XyVh4vDttzHB7QOFhPHa/o413PJ82gU/Tg==}
@@ -3234,6 +3243,12 @@ snapshots:
     optionalDependencies:
       next: 16.2.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react: 19.2.4
+
+  '@z0tz/sdk-v7@file:../Z0tz/sdk-v7(viem@2.52.2(typescript@5.7.3)(zod@3.25.76))':
+    dependencies:
+      '@noble/curves': 1.9.1
+      '@noble/hashes': 1.8.0
+      viem: 2.52.2(typescript@5.7.3)(zod@3.25.76)
 
   abitype@1.2.3(typescript@5.7.3)(zod@3.25.76):
     optionalDependencies:

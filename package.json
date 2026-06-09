@@ -43,6 +43,7 @@
     "@radix-ui/react-tooltip": "1.2.8",
     "@types/geoip-lite": "^1.4.4",
     "@vercel/analytics": "1.6.1",
+    "@z0tz/sdk-v7": "file:/home/oucan/EVVM/FHE/Z0tz/sdk-v7",
     "autoprefixer": "^10.4.20",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",

@@ -98,7 +98,12 @@ export async function getLogs(params: {
   topic3?: string;
 }): Promise<EtherscanLog[] | null> {
   const key = process.env.ETHERSCAN_API_KEY?.trim();
-  if (!key) return null;
+  // F-7 fix: when no Etherscan key is set (local dev, self-hosted), go
+  // straight to the RPC fallback instead of returning null. Returning null
+  // here causes getLogsPaginated → indexV7Chain to silently advance
+  // scan_state to head WITHOUT actually scanning any blocks — the indexer
+  // appears to run successfully but never persists any rows.
+  if (!key) return getLogsViaRpc(params);
   const qs = new URLSearchParams({
     chainid: String(params.chainId),
     module: "logs",

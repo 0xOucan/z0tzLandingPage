@@ -18,3 +18,6 @@ next.user-config.*
 node_modules
 .next/
 .DS_Store
+# Local dev DB
+local.db
+local.db-*
