@@ -1,0 +1,40 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/v7/scan?chainId=421614&maxMs=8000",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/v7/scan?chainId=84532&maxMs=8000",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/v7/scan?chainId=11155111&maxMs=8000",
+      "schedule": "* * * * *"
+    }
+  ],
+  "functions": {
+    "app/api/v7/scan/route.ts": {
+      "maxDuration": 10
+    },
+    "app/api/v7/cashin/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/v7/spend/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/v7/airdrop/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/v7/recover/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/v7/names/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/v7/paymaster/cosign/route.ts": {
+      "maxDuration": 15
+    }
+  }
+}
