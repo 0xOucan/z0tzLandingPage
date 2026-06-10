@@ -1,17 +1,18 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "comment-crons": "Mirrors V6.5's on-demand model: GUI / APK / CLI call /api/v7/scan?chainId=X themselves before reading history (so active users always see fresh state). These crons are the FALLBACK path that picks up stealth inbound transfers for users not currently in the app — every 10 minutes is enough, more aggressive is wasted Vercel-cron quota.",
   "crons": [
     {
       "path": "/api/v7/scan?chainId=421614&maxMs=8000",
-      "schedule": "* * * * *"
+      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/v7/scan?chainId=84532&maxMs=8000",
-      "schedule": "* * * * *"
+      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/v7/scan?chainId=11155111&maxMs=8000",
-      "schedule": "* * * * *"
+      "schedule": "*/10 * * * *"
     }
   ],
   "functions": {
