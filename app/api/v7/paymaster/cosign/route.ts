@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createPublicClient, createWalletClient, http, type Address, type Hex } from "viem";
+import { makeTransport } from "@/lib/relayer/rpc";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { v7Deployment } from "@/lib/relayer/v7";
@@ -185,9 +186,9 @@ export async function POST(req: NextRequest) {
         { status: 503, headers: v7CorsHeaders },
       );
     }
-    const pub = createPublicClient({ chain, transport: http(rpc) });
+    const pub = createPublicClient({ chain, transport: makeTransport(rpc) });
     const operator = privateKeyToAccount(opKey.startsWith("0x") ? (opKey as Hex) : (`0x${opKey}` as Hex));
-    const wallet = createWalletClient({ chain, transport: http(rpc), account: operator });
+    const wallet = createWalletClient({ chain, transport: makeTransport(rpc), account: operator });
 
     // Compute the envelope hash via the paymaster contract — this is the
     // exact hash the contract will recover from on validation, so we

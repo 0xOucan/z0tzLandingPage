@@ -5,9 +5,10 @@
  * on-chain data (commitments, routing, amounts that are already public);
  * never any secret.
  */
-import { createPublicClient, http, decodeEventLog, parseAbiItem, toEventSelector, pad, type AbiEvent, type Address } from "viem";
+import { createPublicClient, decodeEventLog, parseAbiItem, toEventSelector, pad, type AbiEvent, type Address } from "viem";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { getLogsPaginated, type EtherscanLog } from "./etherscan";
+import { makeTransport } from "../relayer/rpc";
 import * as db from "./turso-v7";
 import type { V7Deployment } from "../relayer/v7";
 
@@ -45,9 +46,11 @@ function chainFor(chainId: number) {
 }
 
 async function headBlock(chainId: number): Promise<number> {
-  const rpc = process.env[`RPC_URL_${chainId}`];
-  if (!rpc) throw new Error(`Missing RPC_URL_${chainId}`);
-  const pub = createPublicClient({ chain: chainFor(chainId), transport: http(rpc) });
+  // Use the shared RPC pool with viem `fallback` transport — same path the
+  // relayer uses. If the env-pinned URL goes down, viem auto-rotates to the
+  // curated pool fallbacks instead of failing the whole scan.
+  const rpc = process.env[`RPC_URL_${chainId}`] ?? "";
+  const pub = createPublicClient({ chain: chainFor(chainId), transport: makeTransport(rpc) });
   return Number(await pub.getBlockNumber());
 }
 
