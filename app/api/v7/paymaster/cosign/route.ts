@@ -69,6 +69,7 @@ const CosignRespSchema = z
     operatorSignature: z.string().regex(/^0x[a-fA-F0-9]{130}$/),
     envelopeHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
     operator: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+    configEpoch: z.string().regex(/^\d+$/).openapi({ description: "uint64 — paymaster config epoch bound into the envelope" }),
   })
   .openapi("PaymasterCosignResponse");
 
@@ -106,26 +107,42 @@ function chainFor(chainId: number) {
 
 // Minimal ABI for getEnvelopeHash. The function takes a tuple matching
 // PackedUserOperation + 3 sponsorship scalars and returns bytes32.
-const paymasterAbi = [{
-  name: "getEnvelopeHash",
-  type: "function",
-  stateMutability: "view",
-  inputs: [
-    {
-      name: "userOp", type: "tuple", components: [
-        { name: "sender", type: "address" }, { name: "nonce", type: "uint256" },
-        { name: "initCode", type: "bytes" }, { name: "callData", type: "bytes" },
-        { name: "accountGasLimits", type: "bytes32" }, { name: "preVerificationGas", type: "uint256" },
-        { name: "gasFees", type: "bytes32" }, { name: "paymasterAndData", type: "bytes" },
-        { name: "signature", type: "bytes" },
-      ],
-    },
-    { name: "feeCap", type: "uint256" },
-    { name: "validUntil", type: "uint48" },
-    { name: "validAfter", type: "uint48" },
-  ],
-  outputs: [{ type: "bytes32" }],
-}] as const;
+const paymasterAbi = [
+  {
+    name: "getEnvelopeHash",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      {
+        name: "userOp", type: "tuple", components: [
+          { name: "sender", type: "address" }, { name: "nonce", type: "uint256" },
+          { name: "initCode", type: "bytes" }, { name: "callData", type: "bytes" },
+          { name: "accountGasLimits", type: "bytes32" }, { name: "preVerificationGas", type: "uint256" },
+          { name: "gasFees", type: "bytes32" }, { name: "paymasterAndData", type: "bytes" },
+          { name: "signature", type: "bytes" },
+        ],
+      },
+      { name: "feeCap", type: "uint256" },
+      { name: "validUntil", type: "uint48" },
+      { name: "validAfter", type: "uint48" },
+      { name: "envelopeEpoch", type: "uint64" },
+    ],
+    outputs: [{ type: "bytes32" }],
+  },
+  // AUDIT M-2: paymaster bumps `configEpoch` whenever fee economics or
+  // sponsored-target surface changes. The cosign endpoint reads the live
+  // value and binds it into the envelope so operator liability is pinned
+  // to the config at sign time — if the owner mutates config mid-flight,
+  // the pre-existing envelope reverts at validation rather than executing
+  // under new rules.
+  {
+    name: "configEpoch",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint64" }],
+  },
+] as const;
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: v7CorsHeaders });
@@ -190,6 +207,16 @@ export async function POST(req: NextRequest) {
     const operator = privateKeyToAccount(opKey.startsWith("0x") ? (opKey as Hex) : (`0x${opKey}` as Hex));
     const wallet = createWalletClient({ chain, transport: makeTransport(rpc), account: operator });
 
+    // AUDIT M-2: pull the live configEpoch so the envelope binds it. If the
+    // owner mutates fee/target/factory config between this read and bundle
+    // landing, validation reverts with ConfigEpochMismatch rather than
+    // silently sponsoring under new rules.
+    const envelopeEpoch = (await pub.readContract({
+      address: d.paymaster as Address,
+      abi: paymasterAbi,
+      functionName: "configEpoch",
+    })) as bigint;
+
     // Compute the envelope hash via the paymaster contract — this is the
     // exact hash the contract will recover from on validation, so we
     // can't drift.
@@ -212,6 +239,7 @@ export async function POST(req: NextRequest) {
         feeCap,
         validUntil,
         validAfter,
+        envelopeEpoch,
       ],
     })) as Hex;
 
@@ -224,19 +252,24 @@ export async function POST(req: NextRequest) {
     });
 
     // Assemble paymasterAndData: caller already provided the userOp.paymasterAndData
-    // with all the prefix bytes correctly laid out and a 65-byte sig region
-    // that the caller zeroed. We patch the sig in at the trailing offset.
-    if (userOp.paymasterAndData.length < 2 + (52 + 32 + 6 + 6 + 65) * 2) {
+    // with all the prefix bytes correctly laid out and a (8-byte configEpoch +
+    // 65-byte sig) trailing region that the caller zeroed. We patch in the
+    // live configEpoch + the operator sig at the trailing offset.
+    // AUDIT M-2: layout is now [52 prefix][32 feeCap][6 validUntil][6 validAfter][8 configEpoch][65 sig] = 169 bytes
+    if (userOp.paymasterAndData.length < 2 + (52 + 32 + 6 + 6 + 8 + 65) * 2) {
       return NextResponse.json(
-        { error: "userOp.paymasterAndData too short — envelope prefix missing" },
+        { error: "userOp.paymasterAndData too short — envelope prefix missing (expected 169 bytes incl. configEpoch slot)" },
         { status: 400, headers: v7CorsHeaders },
       );
     }
-    const before = userOp.paymasterAndData.slice(0, userOp.paymasterAndData.length - 130);
-    const paymasterAndData = (before + operatorSignature.slice(2)) as Hex;
+    // Strip the trailing 73 bytes (146 hex chars) the caller zeroed, then
+    // append the live configEpoch (8 bytes, big-endian) + the 65-byte sig.
+    const epochHex = envelopeEpoch.toString(16).padStart(16, "0");
+    const before = userOp.paymasterAndData.slice(0, userOp.paymasterAndData.length - 146);
+    const paymasterAndData = (before + epochHex + operatorSignature.slice(2)) as Hex;
 
     return NextResponse.json(
-      { paymasterAndData, operatorSignature, envelopeHash, operator: operator.address },
+      { paymasterAndData, operatorSignature, envelopeHash, operator: operator.address, configEpoch: envelopeEpoch.toString() },
       { headers: v7CorsHeaders },
     );
   } catch (e: any) {
