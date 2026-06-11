@@ -36,6 +36,12 @@
     },
     "app/api/v7/paymaster/cosign/route.ts": {
       "maxDuration": 15
+    },
+    "app/api/v7/tezcatli/cashin-cosign/route.ts": {
+      "maxDuration": 15
+    },
+    "app/api/v7/tezcatli/cashout-cosign/route.ts": {
+      "maxDuration": 15
     }
   }
 }
