@@ -351,6 +351,77 @@ export const OrgInitiateRecoveryReqSchema = z
   })
   .openapi("OrgInitiateRecoveryRequest");
 
+// ── /api/v7/tezcatli/* — yield-vault read + cosign surface ──────────────
+
+export const TezcatliApyResponseSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    apyBps: z.number().int().min(0).openapi({ description: "Adapter's current APY in basis points (10000 = 100%)" }),
+    apyPercent: z.string().openapi({ example: "5.23", description: "Same value rendered as a percentage string" }),
+  })
+  .openapi("TezcatliApyResponse");
+
+export const TezcatliPositionResponseSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    account: AddressSchema,
+    token: AddressSchema,
+    principal: BigIntStr.openapi({ description: "Principal amount (uint256, in token's base units)" }),
+    shares: BigIntStr.openapi({ description: "Vault share balance" }),
+    grossPosition: BigIntStr.openapi({ description: "Principal + pending yield" }),
+    pendingYield: BigIntStr.openapi({ description: "grossPosition - principal" }),
+    pendingFeeBps: z.number().int().min(0).openapi({ description: "Early-withdraw fee at current time, in bps" }),
+    withdrawUnlockAt: BigIntStr.openapi({ description: "Unix seconds; position is locked until then" }),
+    lockOption: z.number().int().min(0).max(2).openapi({ description: "0=NONE, 1=30D, 2=90D" }),
+  })
+  .openapi("TezcatliPositionResponse");
+
+export const TezcatliTotalsResponseSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    token: AddressSchema,
+    totalAssets: BigIntStr.openapi({ description: "TVL in token base units" }),
+    totalShares: BigIntStr,
+  })
+  .openapi("TezcatliTotalsResponse");
+
+// Cosign requests — caller passes the *intent*; server returns prepared
+// calldata + target. The deployed TezcatliVaultV7 has caller-authenticated
+// deposit/withdraw paths (no separate-signer entrypoint), so the cosign
+// flow today is "build the tx and let the org's account broadcast". An
+// SDK update can switch this to a meta-tx submission when the contract
+// adds a signed-intent path.
+export const TezcatliCashinCosignReqSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    token: AddressSchema,
+    amount: BigIntStr.openapi({ description: "Deposit amount in token base units" }),
+    beneficiary: AddressSchema.openapi({ description: "Smart-account that owns the resulting position" }),
+    lockOption: z.number().int().min(0).max(2).openapi({ description: "0=NONE, 1=30D, 2=90D" }),
+  })
+  .openapi("TezcatliCashinCosignRequest");
+
+export const TezcatliCashoutCosignReqSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    token: AddressSchema,
+    shares: BigIntStr.openapi({ description: "Shares to redeem" }),
+    recipient: AddressSchema.openapi({ description: "Address that receives the unwound assets" }),
+  })
+  .openapi("TezcatliCashoutCosignRequest");
+
+export const TezcatliCosignResponseSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    to: AddressSchema.openapi({ description: "Tezcatli vault address on this chain" }),
+    data: HexSchema.openapi({ description: "ABI-encoded calldata; caller signs + broadcasts" }),
+    value: BigIntStr.openapi({ example: "0", description: "Always 0 — vault entry points are non-payable" }),
+    note: z.string().optional().openapi({
+      description: "Free-form server hint (e.g. lock-option semantics). Not authoritative.",
+    }),
+  })
+  .openapi("TezcatliCosignResponse");
+
 export const OrgScopedErrorSchema = z
   .object({
     error: z.string(),
