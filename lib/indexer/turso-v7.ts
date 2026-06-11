@@ -193,6 +193,73 @@ export async function ensureSchema(): Promise<void> {
         PRIMARY KEY (chain_id, tx_hash, log_index)
       )`,
 
+      // Tezcatli yield-vault events (Deposited / Withdrawn / Strategy*/Fee).
+      // Public on-chain data only — principal/yield/fee amounts are plaintext
+      // by design (the vault is not a private ledger; Z0tz's privacy guarantee
+      // is upstream of Tezcatli at the stealth-address layer).
+      `CREATE TABLE IF NOT EXISTS tezcatli_events_v7 (
+        chain_id INTEGER NOT NULL,
+        account TEXT NOT NULL,
+        token TEXT NOT NULL,
+        kind TEXT NOT NULL, -- 'deposit'|'withdraw'|'strategy_deploy'|'strategy_redeem'|'fee'
+        shares TEXT NOT NULL,
+        assets TEXT NOT NULL,
+        fee TEXT NOT NULL DEFAULT '0',
+        fee_bps INTEGER NOT NULL DEFAULT 0,
+        block INTEGER NOT NULL,
+        tx_hash TEXT NOT NULL,
+        log_index INTEGER NOT NULL,
+        ts INTEGER NOT NULL,
+        PRIMARY KEY (chain_id, tx_hash, log_index)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_tezcatli_events_account ON tezcatli_events_v7(chain_id, account, token, ts DESC)`,
+
+      // ── Audit-fix alert family (post-audit V7 contracts) ─────────────
+      // One append-only table for the structured ops signals the audit
+      // added: ledger MultisendRowSkipped, sweeper FeeTransferFailed,
+      // internal-bridge IntentExpired / PendingMintRecorded /
+      // UnknownRemoteBridge, yield YieldCapped, timed-vault MintCapHit,
+      // tezcatli StrategyValuationStale. Each row carries the event
+      // `kind` plus a small JSON `payload` (schemas vary per event but
+      // dashboards only read a few fields per kind — JSON wins over a
+      // per-event-table fan-out at this volume).
+      `CREATE TABLE IF NOT EXISTS audit_alerts_v7 (
+        chain_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        contract_address TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        block INTEGER NOT NULL,
+        tx_hash TEXT NOT NULL,
+        log_index INTEGER NOT NULL,
+        ts INTEGER NOT NULL,
+        PRIMARY KEY (chain_id, tx_hash, log_index)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_alerts_kind_ts ON audit_alerts_v7(chain_id, kind, ts DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_alerts_block ON audit_alerts_v7(chain_id, block DESC)`,
+
+      // V7 sweeper PrivateSweep events — post-audit the contract appended a
+      // `bool feeSettled` field so we can distinguish sweeps where the fee
+      // leg completed synchronously from sweeps where it was deferred /
+      // reverted (see audit_alerts_v7 kind='sweeper.FeeTransferFailed').
+      // amount / fee stay public — the sweeper inherently leaks them at the
+      // public/private boundary; per-stealth indexing is fine.
+      `CREATE TABLE IF NOT EXISTS sweeper_events_v7 (
+        chain_id INTEGER NOT NULL,
+        stealth_address TEXT NOT NULL,
+        token TEXT NOT NULL,
+        account TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        fee TEXT NOT NULL,
+        fee_settled INTEGER NOT NULL DEFAULT 0,
+        block INTEGER NOT NULL,
+        tx_hash TEXT NOT NULL,
+        log_index INTEGER NOT NULL,
+        ts INTEGER NOT NULL,
+        PRIMARY KEY (chain_id, tx_hash, log_index)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_sweeper_events_account ON sweeper_events_v7(chain_id, account, ts DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_sweeper_events_unsettled ON sweeper_events_v7(chain_id, fee_settled, ts DESC)`,
+
       // B2B SaaS — issued HMAC API keys. One row per (org, key); a key is
       // identified by its 8-char public prefix (`key_id`) so we never have
       // to scan all bcrypt hashes on a request. The full key plaintext is

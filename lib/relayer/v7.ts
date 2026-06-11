@@ -34,9 +34,23 @@ export interface V7Deployment {
   ledger: Address; sweeper: Address; airdropClaim: Address; nameRegistry: Address;
   recoveryHub: Address; vault: Address; zusdc: Address; usdc: Address;
   tokenRegistry: Address; paymaster: Address; entryPoint: Address;
+  // TODO(bridge-v7-wire-up): when the V7 internal-bridge relayer path lands
+  //   here (currently the landing only forwards ledger/sweep/spend, NOT
+  //   bridge messages), the wire shapes for `InternalMessage` and
+  //   `BurnMessage` MUST include the new `uint64 burnNonce` field that the
+  //   post-audit contracts now bind into the message digest. Without it the
+  //   contract reverts with `InvalidBurnNonce` on `attestMint`. Matching SDK
+  //   type lives in @z0tz/sdk-v7's bridge encoders — re-export from there
+  //   rather than redefining locally (see F-6 comment elsewhere in this
+  //   file). audit_alerts_v7 kind='bridge.PendingMintRecorded' surfaces the
+  //   on-chain burnNonce for cross-checking.
   internalBridge?: Address; mockYieldStrategy?: Address; timedVault?: Address;
   emergencyKeyMethod?: Address; guardianQuorumMethod?: Address;
   policyFactory?: Address;
+  // Tezcatli (Aave V3 yield) — optional; only present on chains where
+  // AAVE_V3_POOL_<chainId> was set at deploy time.
+  tezcatliVault?: Address; tezcatliAdapter?: Address;
+  tezcatliRiskPolicy?: Address; tezcatliFactory?: Address;
 }
 
 function chainFor(chainId: number): Chain {
