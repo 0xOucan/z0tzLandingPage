@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireOrgAuth } from "@/lib/relayer/org-auth";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { isEnabled, submitSpend, type SpendReq } from "@/lib/relayer/v7";
 import {
@@ -63,9 +62,9 @@ export async function POST(req: NextRequest) {
   if (blocked) return blocked;
   if (!isEnabled())
     return NextResponse.json({ error: "relayer-disabled" }, { status: 503, headers: v7CorsHeaders });
-  const authResult = await requireOrgAuth(req, v7CorsHeaders);
-  if (authResult instanceof NextResponse) return authResult;
-  const { finalize } = authResult;
+  // OPEN endpoint (retail + B2B). Per-call auth comes from the contract:
+  // every accepted op carries a P-256 sig the on-chain validator verifies.
+  const finalize = async (_n: number) => {};
   try {
     const rawBody = await req.json();
     const parsed = SpendReqSchema.safeParse(rawBody);

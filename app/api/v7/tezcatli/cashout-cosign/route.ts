@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Address } from "viem";
-import { requireOrgAuth } from "@/lib/relayer/org-auth";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { buildWithdrawCalldata } from "@/lib/relayer/tezcatli";
 import {
@@ -47,9 +46,9 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest) {
   const blocked = geofenceResponse(req, v7CorsHeaders);
   if (blocked) return blocked;
-  const authResult = await requireOrgAuth(req, v7CorsHeaders);
-  if (authResult instanceof NextResponse) return authResult;
-  const { finalize } = authResult;
+  // OPEN endpoint (retail + B2B). Per-call auth comes from the contract:
+  // every accepted op carries a P-256 sig the on-chain validator verifies.
+  const finalize = async (_n: number) => {};
   try {
     const raw = await req.json();
     const parsed = TezcatliCashoutCosignReqSchema.safeParse(raw);

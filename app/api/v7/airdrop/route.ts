@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireOrgAuth } from "@/lib/relayer/org-auth";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { isEnabled, submitAirdropClaim, type AirdropClaimReq } from "@/lib/relayer/v7";
 import {
@@ -54,13 +53,10 @@ export async function POST(req: NextRequest) {
   if (blocked) return blocked;
   if (!isEnabled())
     return NextResponse.json({ error: "relayer-disabled" }, { status: 503, headers: v7CorsHeaders });
-  // B2B submit endpoint — every call goes through requireOrgAuth.
-  // Retail / hackathon devs hit chain directly via SDK DirectTransport;
-  // OrgApiTransport is for orgs that pay us to relay on their behalf.
-  // The audit-log row written by finalize() is the billing meter.
-  const authResult = await requireOrgAuth(req, v7CorsHeaders);
-  if (authResult instanceof NextResponse) return authResult;
-  const { finalize } = authResult;
+  // OPEN onboarding endpoint — retail + B2B both call this freely.
+  // OPEN endpoint (retail + B2B). Per-call auth comes from the contract:
+  // every accepted op carries a P-256 sig the on-chain validator verifies.
+  const finalize = async (_n: number) => {};
   try {
     const rawBody = await req.json();
     const parsed = AirdropClaimReqSchema.safeParse(rawBody);
