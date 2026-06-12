@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { watchStealth } from "@/lib/indexer/turso-v7";
-import { requireOrgAuth } from "@/lib/relayer/org-auth";
 import {
   ErrorResponseSchema,
   StealthWatchReqSchema,
@@ -49,9 +48,9 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
-  const authResult = await requireOrgAuth(req, v7CorsHeaders);
-  if (authResult instanceof NextResponse) return authResult;
-  const { finalize } = authResult;
+  // OPEN endpoint (retail + B2B). Per-call auth comes from the contract:
+  // every accepted op carries a P-256 sig the on-chain validator verifies.
+  const finalize = async (_n: number) => {};
   try {
     const rawBody = await req.json();
     const parsed = StealthWatchReqSchema.safeParse(rawBody);
