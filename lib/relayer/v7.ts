@@ -25,7 +25,7 @@ export type {
   RecoverInitiateReq, RecoverExecuteReq,
   EncryptedArtifact, StealthWatchReq, StealthInboundResponse, StealthInboundRow,
   InEuint64,
-} from "@z0tz/sdk-v7";
+} from "../sdk-v7-types";
 
 /** Server-side deployment shape — same fields as the SDK's V7Deployment
  *  but with optional flags on infra-only contracts that old testnet
@@ -169,7 +169,7 @@ import type {
   NameClaimReq as _NameReq, OrgClaimSubdomainReq as _OrgClaimSubReq,
   OrgRepointSubdomainReq as _OrgRepointReq, OrgRevokeSubdomainReq as _OrgRevokeReq,
   OrgSetPolicyReq as _OrgSetPolicyReq, OrgInitiateRecoveryReq as _OrgRecReq,
-} from "@z0tz/sdk-v7";
+} from "../sdk-v7-types";
 
 // ── Submitters ───────────────────────────────────────────────────────────
 export async function submitAirdropClaim(chainId: number, r: _AirdropReq): Promise<{ txHash: Hex }> {
