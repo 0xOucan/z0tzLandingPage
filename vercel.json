@@ -1,0 +1,47 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "comment-crons": "Mirrors V6.5's on-demand model: GUI / APK / CLI call /api/v7/scan?chainId=X themselves before reading history (so active users always see fresh state). These crons are the FALLBACK path that picks up stealth inbound transfers for users not currently in the app — every 10 minutes is enough, more aggressive is wasted Vercel-cron quota.",
+  "crons": [
+    {
+      "path": "/api/v7/scan?chainId=421614&maxMs=8000",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/v7/scan?chainId=84532&maxMs=8000",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/v7/scan?chainId=11155111&maxMs=8000",
+      "schedule": "*/10 * * * *"
+    }
+  ],
+  "functions": {
+    "app/api/v7/scan/route.ts": {
+      "maxDuration": 10
+    },
+    "app/api/v7/cashin/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/v7/spend/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/v7/airdrop/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/v7/recover/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/v7/names/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/v7/paymaster/cosign/route.ts": {
+      "maxDuration": 15
+    },
+    "app/api/v7/tezcatli/cashin-cosign/route.ts": {
+      "maxDuration": 15
+    },
+    "app/api/v7/tezcatli/cashout-cosign/route.ts": {
+      "maxDuration": 15
+    }
+  }
+}
