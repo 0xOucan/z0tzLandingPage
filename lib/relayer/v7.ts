@@ -95,7 +95,7 @@ async function estimateOrFallback(pub: any, args: any, fallback: bigint): Promis
 
 // ── ABIs (minimal, match the deployed contracts) ─────────────────────────
 const airdropAbi = [{ name: "claim", type: "function", stateMutability: "nonpayable",
-  inputs: [{ name: "pubX", type: "uint256" }, { name: "pubY", type: "uint256" }, { name: "nonce", type: "bytes32" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" }], outputs: [] }] as const;
+  inputs: [{ name: "pubX", type: "uint256" }, { name: "pubY", type: "uint256" }, { name: "stealth", type: "address" }, { name: "nonce", type: "bytes32" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" }], outputs: [] }] as const;
 const sweeperAbi = [{ name: "privateSweepToLedger", type: "function", stateMutability: "nonpayable",
   inputs: [{ name: "stealthAddress", type: "address" }, { name: "token", type: "address" }, { name: "account", type: "address" }, { name: "viewer", type: "address" }, { name: "nonce", type: "uint256" }, { name: "amount", type: "uint64" }, { name: "deadline", type: "uint256" }, { name: "signature", type: "bytes" }], outputs: [] }] as const;
 const namesAbi = [
@@ -174,7 +174,7 @@ import type {
 // ── Submitters ───────────────────────────────────────────────────────────
 export async function submitAirdropClaim(chainId: number, r: _AirdropReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
-  const args = [BigInt(r.pubX), BigInt(r.pubY), r.nonce, BigInt(r.sigR), BigInt(r.sigS)] as const;
+  const args = [BigInt(r.pubX), BigInt(r.pubY), r.stealth, r.nonce, BigInt(r.sigR), BigInt(r.sigS)] as const;
   const gas = await estimateOrFallback(pub, { address: d.airdropClaim, abi: airdropAbi, functionName: "claim", args, account }, 300_000n);
   return { txHash: await wallet.writeContract({ address: d.airdropClaim, abi: airdropAbi, functionName: "claim", args, gas } as any) };
 }

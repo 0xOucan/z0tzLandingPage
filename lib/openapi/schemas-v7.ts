@@ -73,6 +73,10 @@ export const AirdropClaimReqSchema = z
       .object({
         pubX: BigIntStr,
         pubY: BigIntStr,
+        stealth: z
+          .string()
+          .regex(/^0x[a-fA-F0-9]{40}$/)
+          .openapi({ description: "Stealth address bound into the signed digest" }),
         nonce: Bytes32Schema,
         sigR: BigIntStr,
         sigS: BigIntStr,

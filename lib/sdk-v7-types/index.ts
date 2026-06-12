@@ -70,6 +70,7 @@ export interface InEuint64 {
 export interface AirdropClaimReq {
   pubX: string;
   pubY: string;
+  stealth: Address;
   nonce: Hex;
   sigR: string;
   sigS: string;
