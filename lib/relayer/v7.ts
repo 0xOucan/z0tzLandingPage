@@ -90,7 +90,13 @@ function clients(chainId: number) {
 }
 
 async function estimateOrFallback(pub: any, args: any, fallback: bigint): Promise<bigint> {
-  try { const e = await pub.estimateContractGas(args); return e + e / 5n; } catch { return fallback; }
+  // 2x safety: eth_estimateGas under-funds FHE-heavy operations because the
+  // CoFHE TaskManager's nested createTask delegatecalls allocate gas in 63/64
+  // chunks (EIP-150). On base-sepolia in particular a 1.2x margin OOG'd the
+  // inner createTask at sub-2k gas. Honor the user-provided fallback so any
+  // function that doesn't estimate cleanly still has a sane ceiling.
+  try { const e = await pub.estimateContractGas(args); const safe = e * 2n; return safe > fallback ? safe : fallback; }
+  catch { return fallback; }
 }
 
 // ── ABIs (minimal, match the deployed contracts) ─────────────────────────
