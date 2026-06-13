@@ -252,6 +252,12 @@ export const OrgClaimSubdomainReqSchema = z
         deadline: BigIntStr.openapi({ description: "Unix seconds; sig expires after" }),
         sigR: BigIntStr.openapi({ description: "Admin P-256 signature r" }),
         sigS: BigIntStr,
+        // AUDIT M-3: the contract's ClaimSubFor struct also takes the
+        // user's own P-256 sig over a per-account consent nonce. The
+        // landing forwards it as part of the tuple; without it the
+        // contract reverts BadSignature on _verifySubdomainConsent.
+        userSigR: BigIntStr.optional().openapi({ description: "User-consent P-256 sig r (audit M-3); defaults to 0 if absent which the contract will refuse" }),
+        userSigS: BigIntStr.optional().openapi({ description: "User-consent P-256 sig s (audit M-3)" }),
       })
       .openapi("OrgSubdomainClaim"),
   })
