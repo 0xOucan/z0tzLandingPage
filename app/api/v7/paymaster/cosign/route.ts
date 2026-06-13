@@ -217,6 +217,23 @@ export async function POST(req: NextRequest) {
       functionName: "configEpoch",
     })) as bigint;
 
+    // AUDIT M-2: the contract's `_hashUserOpForEnvelope` truncates only
+    // the trailing 65-byte operator-sig region of paymasterAndData — the
+    // 8-byte configEpoch slot BEFORE the sig IS hashed in. If the caller
+    // sends paymasterAndData with a placeholder (zero) configEpoch the
+    // off-chain envelopeHash differs from the on-chain one (which sees
+    // the REAL configEpoch we patched in below), so ecrecover would
+    // resolve to a stranger and the contract reverts AA33
+    // InvalidSponsorshipSig. Patch the real configEpoch in BEFORE
+    // computing envelopeHash so both sides hash the same bytes.
+    const userOpForHash = (() => {
+      const layout = 52 + 32 + 6 + 6; // paymaster addr + gas limits + feeCap + validUntil + validAfter
+      const before = userOp.paymasterAndData.slice(0, 2 + layout * 2);
+      const epochHex = envelopeEpoch.toString(16).padStart(16, "0");
+      const tail = userOp.paymasterAndData.slice(2 + (layout + 8) * 2);
+      return { ...userOp, paymasterAndData: (before + epochHex + tail) as Hex };
+    })();
+
     // Compute the envelope hash via the paymaster contract — this is the
     // exact hash the contract will recover from on validation, so we
     // can't drift.
@@ -226,14 +243,14 @@ export async function POST(req: NextRequest) {
       functionName: "getEnvelopeHash",
       args: [
         {
-          sender: userOp.sender as Address,
+          sender: userOpForHash.sender as Address,
           nonce: BigInt(userOp.nonce),
           initCode: userOp.initCode as Hex,
           callData: userOp.callData as Hex,
           accountGasLimits: userOp.accountGasLimits as Hex,
           preVerificationGas: BigInt(userOp.preVerificationGas),
           gasFees: userOp.gasFees as Hex,
-          paymasterAndData: userOp.paymasterAndData as Hex,
+          paymasterAndData: userOpForHash.paymasterAndData as Hex,
           signature: userOp.signature as Hex,
         },
         feeCap,
