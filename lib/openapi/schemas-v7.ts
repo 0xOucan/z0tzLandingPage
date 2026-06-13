@@ -114,6 +114,11 @@ export const SpendOpSchema = z
     destAccount: AddressSchema.openapi({ description: "Used on Internal/CC-Internal" }),
     destAddress: AddressSchema.openapi({ description: "Used on Cashout/CC-Cashout" }),
     destChainId: z.number().int().openapi({ description: "Non-zero on CC-* actions" }),
+    // V7-FINAL #1: signature-bound user-supplied source-chain stealth used
+    // on CrossChain* actions; address(0) on same-chain. The ledger unshields
+    // to this stealth via the vault; the stealth then drives the cctp-clone
+    // burn off-chain.
+    srcStealth: AddressSchema.openapi({ description: "User-supplied src stealth for CrossChain*; address(0) for same-chain" }),
     amount: InEuint64Schema,
     // F-6 fix: SpendOp on-chain has plainAmount (uint64) between amount and
     // nonce. Internal paths pass "0"; cashout paths pass the matching
@@ -139,6 +144,10 @@ export const NameClaimReqSchema = z
     chainId: ChainIdSchema,
     claim: z
       .object({
+        // V7-FINAL #14: cleartext name (a-z 0-9 - only, length 4-32). The
+        // contract validates ASCII + length on-chain and verifies that
+        // keccak256(abi.encode(name)) === nameHash.
+        name: z.string().openapi({ description: "Cleartext name (a-z0-9- only); contract validates on-chain", example: "alice" }),
         nameHash: Bytes32Schema,
         nameLength: BigIntStr,
         pubX: BigIntStr,
@@ -235,6 +244,8 @@ export const OrgClaimSubdomainReqSchema = z
     chainId: ChainIdSchema,
     claim: z
       .object({
+        // V7-FINAL #14: cleartext leaf segment validated on-chain.
+        leafSegment: z.string().openapi({ description: "Cleartext leaf segment (a-z0-9- only) — e.g. \"arturo\" for arturo.coppel.z0tz", example: "arturo" }),
         parentNameHash: Bytes32Schema.openapi({
           description:
             "Must equal the API key's subdomainRootHash. Server-side scope check.",

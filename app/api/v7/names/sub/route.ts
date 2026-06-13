@@ -17,9 +17,11 @@ const CHAINS: Record<number, any> = {
   84532: baseSepolia, 11155111: sepolia, 421614: arbitrumSepolia, 31337: hardhat,
 };
 
+// V7-FINAL #14: claimSubdomain takes the cleartext leaf segment first.
 const abi = [
   { name: "claimSubdomain", type: "function", stateMutability: "nonpayable",
     inputs: [
+      { name: "leafSegment", type: "string" },
       { name: "parentNameHash", type: "bytes32" }, { name: "leafNameHash", type: "bytes32" },
       { name: "pubX", type: "uint256" }, { name: "pubY", type: "uint256" },
       { name: "resolvedAccount", type: "address" },
@@ -51,7 +53,12 @@ export async function POST(req: NextRequest) {
     const d = v7Deployment(chainId);
     const reg = d.nameRegistry as Address;
 
+    // V7-FINAL #14: forward cleartext leafSegment.
+    if (typeof claim.leafSegment !== "string" || !claim.leafSegment) {
+      return NextResponse.json({ error: "Missing claim.leafSegment (V7-FINAL #14)" }, { status: 400, headers: v7CorsHeaders });
+    }
     const args = [
+      claim.leafSegment as string,
       claim.parentNameHash as Hex,
       claim.leafNameHash as Hex,
       BigInt(claim.pubX), BigInt(claim.pubY),

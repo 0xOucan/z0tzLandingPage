@@ -13,6 +13,22 @@ import { v7Deployment } from "@/lib/relayer/v7";
 
 // V7 cross-chain delivery (steps 2 + 3 of the relayer-attested flow).
 //
+// TODO(V7-FINAL #1/#2 — human review): the source-side
+// `Z0tzInternalBridge.dispatchPlaintextOut` / `dispatchPlaintext` / `Intent`
+// pathway was removed in V7-final. The src side is now:
+//   1) ledger.spend with srcStealth → vault unshields encrypted balance to srcStealth
+//   2) the stealth itself (off-chain CLI/relayer fund-stealth gas) calls
+//      zusdcMessenger.depositForBurn directly
+// That means src txs emit ONLY `MessageSent` (cctp-clone), NOT the routing
+// `InternalMessageSent` this endpoint also expects. The dest side still needs
+// to deliver an InternalMessage to credit the destination ledger / cashout —
+// but its source MUST be reworked to come from the relayer's own
+// reconstructed routing payload, not from a src-emitted InternalMessageSent.
+// Until that rewrite lands this route will return the "did not emit
+// InternalMessageSent" error for every V7-final src tx. Pre-redeploy, leave
+// as-is (typechecks); post-redeploy, gut + rebuild around the cctp-clone
+// MessageSent + a relayer-constructed routing message.
+//
 // Assumes step 1 (Z0tzInternalBridge.dispatchPlaintextOut on src — pulls
 // zUSDC liquidity from the relayer's own balance, burns via the cctp-clone
 // messenger, emits the routing InternalMessageSent) has already run.

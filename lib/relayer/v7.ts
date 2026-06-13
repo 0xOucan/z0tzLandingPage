@@ -44,7 +44,7 @@ export interface V7Deployment {
   //   rather than redefining locally (see F-6 comment elsewhere in this
   //   file). audit_alerts_v7 kind='bridge.PendingMintRecorded' surfaces the
   //   on-chain burnNonce for cross-checking.
-  internalBridge?: Address; mockYieldStrategy?: Address; timedVault?: Address;
+  internalBridge?: Address; zusdcTransmitter?: Address; zusdcMessenger?: Address; mockYieldStrategy?: Address; timedVault?: Address;
   emergencyKeyMethod?: Address; guardianQuorumMethod?: Address;
   policyFactory?: Address;
   // Tezcatli (Aave V3 yield) — optional; only present on chains where
@@ -105,16 +105,32 @@ const airdropAbi = [{ name: "claim", type: "function", stateMutability: "nonpaya
 const sweeperAbi = [{ name: "privateSweepToLedger", type: "function", stateMutability: "nonpayable",
   inputs: [{ name: "stealthAddress", type: "address" }, { name: "token", type: "address" }, { name: "account", type: "address" }, { name: "viewer", type: "address" }, { name: "nonce", type: "uint256" }, { name: "amount", type: "uint64" }, { name: "deadline", type: "uint256" }, { name: "signature", type: "bytes" }], outputs: [] }] as const;
 const namesAbi = [
+  // V7-FINAL #14: `claim` now takes cleartext `name` as the first param so
+  // the contract can validate the ASCII allowlist + length on-chain and
+  // cross-check keccak256(abi.encode(name)) === nameHash.
   { name: "claim", type: "function", stateMutability: "nonpayable",
-    inputs: [{ name: "nameHash", type: "bytes32" }, { name: "nameLength", type: "uint256" }, { name: "pubX", type: "uint256" }, { name: "pubY", type: "uint256" }, { name: "resolvedAccount", type: "address" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" }], outputs: [] },
+    inputs: [{ name: "name", type: "string" }, { name: "nameHash", type: "bytes32" }, { name: "nameLength", type: "uint256" }, { name: "pubX", type: "uint256" }, { name: "pubY", type: "uint256" }, { name: "resolvedAccount", type: "address" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" }], outputs: [] },
+  // V7-FINAL #7: relayer-as-namespace-authority paths.
+  { name: "claimAsAuthority", type: "function", stateMutability: "nonpayable",
+    inputs: [{ name: "name", type: "string" }, { name: "nameHash", type: "bytes32" }, { name: "nameLength", type: "uint256" }, { name: "resolvedAccount", type: "address" }], outputs: [] },
+  { name: "claimSubdomainAsAuthority", type: "function", stateMutability: "nonpayable",
+    inputs: [{ name: "leafSegment", type: "string" }, { name: "parentNameHash", type: "bytes32" }, { name: "leafNameHash", type: "bytes32" }, { name: "resolvedAccount", type: "address" }], outputs: [] },
+  { name: "repointAsAuthority", type: "function", stateMutability: "nonpayable",
+    inputs: [{ name: "nameHash", type: "bytes32" }, { name: "newAccount", type: "address" }], outputs: [] },
+  { name: "revokeAsAuthority", type: "function", stateMutability: "nonpayable",
+    inputs: [{ name: "nameHash", type: "bytes32" }], outputs: [] },
   // Phase 1 B2B: admin-signed onboarding of a user under a subdomain root.
   // AUDIT M-3: contract signature is `claimSubdomainFor(ClaimSubFor p)` — a
   // TUPLE struct of 12 fields including the user-consent signature
   // (userSigR/userSigS). Earlier ABI listed 10 individual params + missing
   // user consent; that produced an empty-data revert on every claim because
   // the contract's abi.decode saw mismatched calldata.
+  // V7-FINAL #14: `claimSubdomainFor` now takes `leafSegment` cleartext
+  // as the first param so the contract validates the leaf on-chain.
   { name: "claimSubdomainFor", type: "function", stateMutability: "nonpayable",
-    inputs: [{ name: "p", type: "tuple", components: [
+    inputs: [
+      { name: "leafSegment", type: "string" },
+      { name: "p", type: "tuple", components: [
       { name: "parentNameHash", type: "bytes32" }, { name: "leafNameHash", type: "bytes32" },
       { name: "userPubX", type: "uint256" }, { name: "userPubY", type: "uint256" },
       { name: "userResolvedAccount", type: "address" },
@@ -160,6 +176,10 @@ const ledgerAbi = [{ name: "spend", type: "function", stateMutability: "nonpayab
   inputs: [{ name: "op", type: "tuple", components: [
     { name: "account", type: "address" }, { name: "token", type: "address" }, { name: "action", type: "uint8" },
     { name: "destAccount", type: "address" }, { name: "destAddress", type: "address" }, { name: "destChainId", type: "uint32" },
+    // V7-FINAL #1: srcStealth bound at end of struct so non-xchain rows
+    // (srcStealth = address(0)) stay byte-stable for prior signers; CrossChain*
+    // actions REQUIRE non-zero. Field order matches Z0tzLedgerV7.SpendOp.
+    { name: "srcStealth", type: "address" },
     inEuint64,
     // F-6 fix: contract's SpendOp has a uint64 plainAmount between amount
     // and nonce (audit C-2: binds plaintext to the signed digest so the
@@ -202,6 +222,9 @@ export async function submitSpend(chainId: number, r: _SpendReq): Promise<{ txHa
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const op = {
     account: r.account, token: r.token, action: r.action, destAccount: r.destAccount, destAddress: r.destAddress, destChainId: r.destChainId,
+    // V7-FINAL #1: srcStealth — address(0) for same-chain; non-zero for
+    // CrossChain* (signature-bound, contract reverts ZeroAddress otherwise).
+    srcStealth: (r.srcStealth ?? "0x0000000000000000000000000000000000000000") as Address,
     amount: { ctHash: BigInt(r.amount.ctHash), securityZone: r.amount.securityZone, utype: r.amount.utype, signature: r.amount.signature },
     plainAmount: BigInt(r.plainAmount ?? "0"),
     nonce: BigInt(r.nonce), deadline: BigInt(r.deadline), pkX: BigInt(r.pkX), pkY: BigInt(r.pkY), sigR: BigInt(r.sigR), sigS: BigInt(r.sigS),
@@ -212,7 +235,8 @@ export async function submitSpend(chainId: number, r: _SpendReq): Promise<{ txHa
 
 export async function submitNameClaim(chainId: number, r: _NameReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
-  const args = [r.nameHash, BigInt(r.nameLength), BigInt(r.pubX), BigInt(r.pubY), r.resolvedAccount, BigInt(r.sigR), BigInt(r.sigS)] as const;
+  // V7-FINAL #14: contract takes the cleartext `name` as the first param.
+  const args = [r.name, r.nameHash, BigInt(r.nameLength), BigInt(r.pubX), BigInt(r.pubY), r.resolvedAccount, BigInt(r.sigR), BigInt(r.sigS)] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, account }, 400_000n);
   return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, gas } as any) };
 }
@@ -237,7 +261,8 @@ export async function submitOrgClaimSubdomain(chainId: number, r: _OrgClaimSubRe
     userSigR: r.userSigR !== undefined ? BigInt(r.userSigR) : 0n,
     userSigS: r.userSigS !== undefined ? BigInt(r.userSigS) : 0n,
   };
-  const args = [tuple] as const;
+  // V7-FINAL #14: contract takes cleartext `leafSegment` first.
+  const args = [r.leafSegment, tuple] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, account }, 600_000n);
   return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, gas } as any) };
 }
@@ -300,4 +325,44 @@ export async function submitRecoverExecute(chainId: number, r: { recoveryId: str
   const args = [BigInt(r.recoveryId)] as const;
   const gas = await estimateOrFallback(pub, { address: d.recoveryHub, abi: hubAbi, functionName: "executeRecovery", args, account }, 400_000n);
   return { txHash: await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "executeRecovery", args, gas } as any) };
+}
+
+// ── V7-FINAL #7: relayer-as-namespace-authority submitters ─────────────
+//
+// The calling relayer EOA (this key) is the on-chain authority — pubkeyHash
+// is derived from msg.sender. Cross-chain canonical uniqueness is enforced
+// by the off-chain state machine BEFORE these tx submit.
+import type {
+  NameClaimAsAuthorityReq as _AuthClaimReq,
+  SubdomainClaimAsAuthorityReq as _AuthSubClaimReq,
+  RepointAsAuthorityReq as _AuthRepointReq,
+  RevokeAsAuthorityReq as _AuthRevokeReq,
+} from "../sdk-v7-types";
+
+export async function submitNameClaimAsAuthority(chainId: number, r: _AuthClaimReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [r.name, r.nameHash, BigInt(r.nameLength), r.resolvedAccount] as const;
+  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimAsAuthority", args, account }, 400_000n);
+  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimAsAuthority", args, gas } as any) };
+}
+
+export async function submitSubdomainClaimAsAuthority(chainId: number, r: _AuthSubClaimReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [r.leafSegment, r.parentNameHash, r.leafNameHash, r.resolvedAccount] as const;
+  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainAsAuthority", args, account }, 400_000n);
+  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainAsAuthority", args, gas } as any) };
+}
+
+export async function submitRepointAsAuthority(chainId: number, r: _AuthRepointReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [r.nameHash, r.newAccount] as const;
+  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "repointAsAuthority", args, account }, 300_000n);
+  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "repointAsAuthority", args, gas } as any) };
+}
+
+export async function submitRevokeAsAuthority(chainId: number, r: _AuthRevokeReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [r.nameHash] as const;
+  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "revokeAsAuthority", args, account }, 300_000n);
+  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "revokeAsAuthority", args, gas } as any) };
 }

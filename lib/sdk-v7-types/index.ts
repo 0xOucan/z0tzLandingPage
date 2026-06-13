@@ -105,6 +105,10 @@ export interface SpendReq {
   destAddress: Address;
   /** Non-zero on CC-* actions; 0 on same-chain. */
   destChainId: number;
+  /** V7-FINAL #1: user-supplied source-chain stealth address for
+   *  CrossChain* actions; address(0) for same-chain. Bound into the
+   *  spend digest so the relayer cannot redirect funds. */
+  srcStealth: Address;
   amount: InEuint64;
   /** uint64 as decimal string. "0" for Internal, matching unshield for Cashout. */
   plainAmount: string;
@@ -117,6 +121,9 @@ export interface SpendReq {
 }
 
 export interface NameClaimReq {
+  /** V7-FINAL #14: cleartext name (a-z 0-9 - only). Contract validates
+   *  ASCII + length on-chain and checks keccak256(abi.encode(name)) === nameHash. */
+  name: string;
   nameHash: Hex;
   nameLength: string;
   pubX: string;
@@ -124,6 +131,33 @@ export interface NameClaimReq {
   resolvedAccount: Address;
   sigR: string;
   sigS: string;
+}
+
+/** V7-FINAL #7: relayer-as-authority top-level claim. No user signature —
+ *  the calling authority (the relayer holding CLAIM_AUTHORITY_ROLE) is
+ *  the signer-of-record. */
+export interface NameClaimAsAuthorityReq {
+  name: string;
+  nameHash: Hex;
+  nameLength: string;
+  resolvedAccount: Address;
+}
+
+/** V7-FINAL #7: relayer-as-authority subdomain claim. */
+export interface SubdomainClaimAsAuthorityReq {
+  leafSegment: string;
+  parentNameHash: Hex;
+  leafNameHash: Hex;
+  resolvedAccount: Address;
+}
+
+/** V7-FINAL #7: relayer-as-authority repoint / revoke. */
+export interface RepointAsAuthorityReq {
+  nameHash: Hex;
+  newAccount: Address;
+}
+export interface RevokeAsAuthorityReq {
+  nameHash: Hex;
 }
 
 /**
@@ -135,6 +169,9 @@ export interface NameClaimReq {
  * subdomainConsentDigest in ../digest).
  */
 export interface OrgClaimSubdomainReq {
+  /** V7-FINAL #14: cleartext leaf segment (e.g. "arturo" for
+   *  arturo.coppel.z0tz). Contract validates ASCII + depth on-chain. */
+  leafSegment: string;
   parentNameHash: Hex;
   leafNameHash: Hex;
   userPubX: string;
@@ -298,10 +335,15 @@ export interface BurnMessage {
 }
 
 // ── Bridge ops ───────────────────────────────────────────────────────
-
-export interface ExpireIntentReq {
-  intentId: Hex;            // bytes32
-}
+//
+// V7-FINAL #2: source-side `dispatchPlaintext` / `initiateCrossChain` /
+// `Intent` were removed from Z0tzInternalBridge. The ledger now unshields
+// CrossChain* spends to a user-supplied srcStealth via the vault, and the
+// stealth itself calls zusdcMessenger.depositForBurn off-chain. The bridge
+// keeps only dest-side `receiveInternal` + cctp-clone receive.
+//
+// `ExpireIntentReq` is removed accordingly. The InternalMessage /
+// BurnMessage destination-side decode shapes remain.
 
 // ── Vault ops ────────────────────────────────────────────────────────
 
