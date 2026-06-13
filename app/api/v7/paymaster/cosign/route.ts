@@ -244,12 +244,13 @@ export async function POST(req: NextRequest) {
     })) as Hex;
 
     // Sign the envelope hash. `getEnvelopeHash` already wraps the data
-    // in the EIP-191 prefix, so we sign the raw 32 bytes (no further
-    // prefix). viem's signMessage with `{ raw: hash }` does exactly this.
-    const operatorSignature = await wallet.signMessage({
-      account: operator,
-      message: { raw: envelopeHash },
-    });
+    // in the EIP-191 prefix, so we sign the raw 32 bytes WITHOUT any
+    // additional prefix. viem's `account.sign({ hash })` signs the
+    // hash directly; `signMessage({ raw })` would add a SECOND
+    // EIP-191 prefix which the contract doesn't expect (the recovered
+    // address would differ from any registered operator → AA33
+    // InvalidSponsorshipSig).
+    const operatorSignature = await operator.sign({ hash: envelopeHash });
 
     // Assemble paymasterAndData: caller already provided the userOp.paymasterAndData
     // with all the prefix bytes correctly laid out and a (8-byte configEpoch +
