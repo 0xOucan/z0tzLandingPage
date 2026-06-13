@@ -24,7 +24,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createPublicClient, createWalletClient, http, type Address, type Hex } from "viem";
 import { makeTransport } from "@/lib/relayer/rpc";
-import { privateKeyToAccount } from "viem/accounts";
+import { privateKeyToAccount, sign as signRaw, serializeSignature } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { v7Deployment } from "@/lib/relayer/v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
@@ -245,12 +245,12 @@ export async function POST(req: NextRequest) {
 
     // Sign the envelope hash. `getEnvelopeHash` already wraps the data
     // in the EIP-191 prefix, so we sign the raw 32 bytes WITHOUT any
-    // additional prefix. viem's `account.sign({ hash })` signs the
-    // hash directly; `signMessage({ raw })` would add a SECOND
-    // EIP-191 prefix which the contract doesn't expect (the recovered
-    // address would differ from any registered operator → AA33
-    // InvalidSponsorshipSig).
-    const operatorSignature = await operator.sign({ hash: envelopeHash });
+    // additional prefix. Use viem's low-level `sign({ hash, privateKey })`
+    // which performs raw ECDSA signing of the digest (no prefixing).
+    // `signMessage({ raw })` would add a SECOND EIP-191 prefix and break
+    // the on-chain `ecrecover(envelopeHash, sig)` recovery.
+    const rawSig = await signRaw({ hash: envelopeHash, privateKey: opKey.startsWith("0x") ? (opKey as Hex) : (`0x${opKey}` as Hex) });
+    const operatorSignature = serializeSignature(rawSig);
 
     // Assemble paymasterAndData: caller already provided the userOp.paymasterAndData
     // with all the prefix bytes correctly laid out and a (8-byte configEpoch +
