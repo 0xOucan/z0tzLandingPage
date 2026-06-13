@@ -108,15 +108,21 @@ const namesAbi = [
   { name: "claim", type: "function", stateMutability: "nonpayable",
     inputs: [{ name: "nameHash", type: "bytes32" }, { name: "nameLength", type: "uint256" }, { name: "pubX", type: "uint256" }, { name: "pubY", type: "uint256" }, { name: "resolvedAccount", type: "address" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" }], outputs: [] },
   // Phase 1 B2B: admin-signed onboarding of a user under a subdomain root.
-  // The contract validates the admin's P-256 sig + the rootNonce + deadline.
+  // AUDIT M-3: contract signature is `claimSubdomainFor(ClaimSubFor p)` — a
+  // TUPLE struct of 12 fields including the user-consent signature
+  // (userSigR/userSigS). Earlier ABI listed 10 individual params + missing
+  // user consent; that produced an empty-data revert on every claim because
+  // the contract's abi.decode saw mismatched calldata.
   { name: "claimSubdomainFor", type: "function", stateMutability: "nonpayable",
-    inputs: [
+    inputs: [{ name: "p", type: "tuple", components: [
       { name: "parentNameHash", type: "bytes32" }, { name: "leafNameHash", type: "bytes32" },
       { name: "userPubX", type: "uint256" }, { name: "userPubY", type: "uint256" },
       { name: "userResolvedAccount", type: "address" },
       { name: "adminPubX", type: "uint256" }, { name: "adminPubY", type: "uint256" },
       { name: "deadline", type: "uint64" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" },
-    ], outputs: [] },
+      { name: "userSigR", type: "uint256" }, { name: "userSigS", type: "uint256" },
+    ] }],
+    outputs: [] },
   { name: "repointSubdomain", type: "function", stateMutability: "nonpayable",
     inputs: [
       { name: "leafNameHash", type: "bytes32" },
@@ -214,14 +220,24 @@ export async function submitNameClaim(chainId: number, r: _NameReq): Promise<{ t
 // ── B2B SaaS: org admin ops ──────────────────────────────────────────────
 // (Request interfaces re-exported from @z0tz/sdk-v7 — top of file.)
 
-export async function submitOrgClaimSubdomain(chainId: number, r: _OrgClaimSubReq): Promise<{ txHash: Hex }> {
+export async function submitOrgClaimSubdomain(chainId: number, r: _OrgClaimSubReq & { userSigR?: string | bigint; userSigS?: string | bigint }): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
-  const args = [
-    r.parentNameHash, r.leafNameHash,
-    BigInt(r.userPubX), BigInt(r.userPubY), r.userResolvedAccount,
-    BigInt(r.adminPubX), BigInt(r.adminPubY),
-    BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
-  ] as const;
+  // AUDIT M-3: the contract's claimSubdomainFor expects the ClaimSubFor
+  // tuple INCLUDING the user-consent signature (userSigR/userSigS). If the
+  // caller didn't include them, default to zero — the on-chain
+  // _verifySubdomainConsent will refuse and the tx will revert
+  // BadSignature, which is the correct outcome (auth-required by design).
+  const tuple = {
+    parentNameHash: r.parentNameHash, leafNameHash: r.leafNameHash,
+    userPubX: BigInt(r.userPubX), userPubY: BigInt(r.userPubY),
+    userResolvedAccount: r.userResolvedAccount,
+    adminPubX: BigInt(r.adminPubX), adminPubY: BigInt(r.adminPubY),
+    deadline: BigInt(r.deadline),
+    sigR: BigInt(r.sigR), sigS: BigInt(r.sigS),
+    userSigR: r.userSigR !== undefined ? BigInt(r.userSigR) : 0n,
+    userSigS: r.userSigS !== undefined ? BigInt(r.userSigS) : 0n,
+  };
+  const args = [tuple] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, account }, 600_000n);
   return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, gas } as any) };
 }
