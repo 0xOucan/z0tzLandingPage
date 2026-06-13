@@ -280,7 +280,15 @@ export async function ensureSchema(): Promise<void> {
         tier TEXT NOT NULL DEFAULT 'sandbox',
         contact_email TEXT,
         created_at INTEGER NOT NULL,
-        revoked_at INTEGER
+        revoked_at INTEGER,
+        -- M-7 HMAC-over-body: plaintext HMAC key (the same value returned to
+        -- the org admin at issuance). Stored so the server can RECOMPUTE the
+        -- HMAC over the request method/path/body and constant-time compare.
+        -- bcrypt_hash is retained for legacy auth surface (currently unused)
+        -- and as a safety net during rollout. NEW keys MUST populate this
+        -- column; legacy keys without it cannot authenticate against the
+        -- HMAC scheme (by design — old static-key callers must rotate).
+        hmac_key TEXT
       )`,
 
       // Append-only audit log of every /api/v7/org/* call. Keyed by the
@@ -300,6 +308,13 @@ export async function ensureSchema(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS idx_org_audit_log_key_ts ON org_audit_log(key_id, ts DESC)`,
     ],
   );
+  // M-7: backfill the hmac_key column on older deployments where the table
+  // already existed before this column was added. SQLite has no
+  // "ADD COLUMN IF NOT EXISTS" — we run it standalone and swallow the
+  // "duplicate column name" error so the call is idempotent.
+  try {
+    await c.execute(`ALTER TABLE org_keys ADD COLUMN hmac_key TEXT`);
+  } catch { /* column already exists — safe to ignore */ }
   _schemaReady = true;
 }
 
@@ -477,8 +492,8 @@ export async function issueOrgKey(args: {
   const created = Date.now();
   await client().execute({
     sql: `INSERT INTO org_keys
-            (key_id, org_name, subdomain_root_hash, bcrypt_hash, tier, contact_email, created_at, revoked_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+            (key_id, org_name, subdomain_root_hash, bcrypt_hash, tier, contact_email, created_at, revoked_at, hmac_key)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
     args: [
       keyId,
       args.orgName,
@@ -487,6 +502,10 @@ export async function issueOrgKey(args: {
       args.tier ?? "sandbox",
       args.contactEmail ?? null,
       created,
+      // M-7: store the plaintext key as the HMAC secret. This is what every
+      // /api/v7/org/* request gets HMAC'd with. bcrypt_hash is retained for
+      // historical reasons but is no longer the auth gate.
+      plaintext,
     ],
   });
   return {
@@ -511,15 +530,53 @@ export async function revokeOrgKey(keyId: string): Promise<void> {
 }
 
 /**
- * Authenticate an `X-Z0tz-Org-Key` header value. Returns the org metadata on
- * success, null otherwise. The check is O(1) (single PRIMARY KEY lookup on
- * `key_id`) followed by a bcrypt compare on the secret half.
+ * M-7: HMAC-over-body authentication for /api/v7/org/* requests.
+ *
+ * Header shape:
+ *   X-Z0tz-Org-Auth: keyId=<8-hex>;ts=<ms>;sig=<64-hex>
+ *
+ * sig = HMAC_SHA256(hmac_key, `${ts}|${method}|${path}|${sha256Hex(body)}`)
+ *
+ * The hmac_key for an org is the plaintext key returned at issuance (stored
+ * in `org_keys.hmac_key`). Binding the body into the signature stops the
+ * tamper-the-body-before-forwarding attack the old static key was vulnerable
+ * to. `ts` must be within ±5 min of server clock to bound replay.
+ *
+ * Returns the org metadata on success, null otherwise. Legacy keys that
+ * predate this column (hmac_key IS NULL) cannot authenticate against this
+ * scheme — they must be rotated to a freshly-issued key.
  */
-export async function authenticateOrgKey(headerValue: string | null | undefined): Promise<OrgKeyMeta | null> {
-  if (!headerValue) return null;
-  const m = headerValue.match(/^z0tz_([a-f0-9]{8})_([a-f0-9]{32})$/);
-  if (!m) return null;
-  const [, keyId, secret] = m;
+export interface OrgHmacAuthInput {
+  /** Raw header value of `X-Z0tz-Org-Auth`. */
+  header: string | null | undefined;
+  /** Uppercased HTTP method (e.g. "POST", "GET"). */
+  method: string;
+  /** URL pathname only (no query string). */
+  path: string;
+  /** Raw request body as the client sent it. Empty string for GET. */
+  body: string;
+}
+
+export async function authenticateOrgRequest(input: OrgHmacAuthInput): Promise<OrgKeyMeta | null> {
+  if (!input.header) return null;
+  // Tolerant parse: split on ';', trim, key=value.
+  const parts = Object.fromEntries(
+    input.header.split(";").map((kv) => {
+      const i = kv.indexOf("=");
+      return i < 0 ? [kv.trim(), ""] : [kv.slice(0, i).trim(), kv.slice(i + 1).trim()];
+    }),
+  ) as Record<string, string>;
+  const keyId = parts.keyId;
+  const tsStr = parts.ts;
+  const sigHex = (parts.sig || "").toLowerCase();
+  if (!keyId || !/^[a-f0-9]{8}$/.test(keyId)) return null;
+  if (!tsStr || !/^\d+$/.test(tsStr)) return null;
+  if (!/^[a-f0-9]{64}$/.test(sigHex)) return null;
+  const ts = Number(tsStr);
+  if (!Number.isFinite(ts)) return null;
+  const skewMs = Math.abs(Date.now() - ts);
+  if (skewMs > 5 * 60 * 1000) return null; // ±5 minute replay window
+
   await ensureSchema();
   const r = await client().execute({
     sql: `SELECT * FROM org_keys WHERE key_id = ? LIMIT 1`,
@@ -528,8 +585,20 @@ export async function authenticateOrgKey(headerValue: string | null | undefined)
   const row = r.rows[0];
   if (!row) return null;
   if (row.revoked_at !== null) return null;
-  const bcrypt = await import("bcryptjs");
-  const ok = await bcrypt.compare(`${keyId}_${secret}`, row.bcrypt_hash as string);
+  const hmacKey = (row.hmac_key as string | null) ?? null;
+  if (!hmacKey) return null; // legacy row — force rotation
+
+  const { createHmac, createHash, timingSafeEqual } = await import("node:crypto");
+  const bodyHash = createHash("sha256").update(input.body).digest("hex");
+  const message = `${ts}|${input.method.toUpperCase()}|${input.path}|${bodyHash}`;
+  const expected = createHmac("sha256", hmacKey).update(message).digest("hex");
+  // Constant-time compare. Both buffers are guaranteed 64 hex chars (32 bytes).
+  let ok = false;
+  try {
+    ok = timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(sigHex, "hex"));
+  } catch {
+    ok = false;
+  }
   if (!ok) return null;
   return {
     key_id: row.key_id as string,

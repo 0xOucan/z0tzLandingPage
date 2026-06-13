@@ -7,6 +7,8 @@ import {
   TezcatliTotalsResponseSchema,
 } from "@/lib/openapi/schemas-v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
+import { errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
@@ -35,22 +37,25 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withApiLog("/api/v7/tezcatli/totals", async (req: NextRequest, ctx) => {
   try {
     const sp = new URL(req.url).searchParams;
     const chainIdStr = sp.get("chainId");
     const token = sp.get("token");
-    if (!chainIdStr)
+    if (!chainIdStr) {
+      ctx.errorCode = "validation_failed";
       return NextResponse.json({ error: "missing chainId" }, { status: 400, headers: v7CorsHeaders });
-    if (!token || !ADDRESS_RE.test(token))
+    }
+    if (!token || !ADDRESS_RE.test(token)) {
+      ctx.errorCode = "validation_failed";
       return NextResponse.json({ error: "missing or invalid token" }, { status: 400, headers: v7CorsHeaders });
+    }
     const chainId = Number(chainIdStr);
+    ctx.chainId = chainId;
     const totals = await readTotals(chainId, token as Address);
     return NextResponse.json({ chainId, token, ...totals }, { headers: v7CorsHeaders });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e.message ?? "read failed" },
-      { status: 500, headers: v7CorsHeaders },
-    );
+    ctx.errorCode = "read_failed";
+    return errorResponse(500, "read_failed", v7CorsHeaders, e);
   }
-}
+});

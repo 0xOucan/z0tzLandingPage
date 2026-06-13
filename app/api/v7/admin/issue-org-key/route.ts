@@ -1,58 +1,88 @@
 import { NextRequest, NextResponse } from "next/server";
 import { keccak256, toBytes } from "viem";
 import { issueOrgKey } from "@/lib/indexer/turso-v7";
-import { v7CorsHeaders } from "@/lib/openapi/registry";
+import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
+import {
+  ErrorResponseSchema,
+  IssueOrgKeyReqSchema,
+} from "@/lib/openapi/schemas-v7";
+import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
-// Admin-only endpoint to provision an org HMAC API key against the
-// production Turso DB so the V7 org/* surface is exercise-able from
-// outside the landing app.
-//
-// Auth: requires `X-Z0tz-Admin-Key` header matching env Z0TZ_ADMIN_KEY.
-// If the env var isn't set, the route refuses entirely (no anon issue).
-//
-// Use case: provisioning kit (V7 alpha test surface item #1). Once a key
-// is issued, the holder can drive the full /api/v7/org/* flow:
-// subdomain claim, repoint, revoke, policy set, recover-initiate.
-//
-// Curl example:
-//   curl -X POST https://z0tz-landing-page.vercel.app/api/v7/admin/issue-org-key \
-//     -H 'Content-Type: application/json' \
-//     -H 'X-Z0tz-Admin-Key: <Z0TZ_ADMIN_KEY>' \
-//     -d '{"orgName":"acme","subdomainRoot":"acme","tier":"sandbox"}'
+// Admin-only provisioning endpoint. Auth: X-Z0tz-Admin-Key compared in
+// constant time against env Z0TZ_ADMIN_KEY (M-8 fix).
+
+v7Registry.registerPath({
+  method: "post",
+  path: "/api/v7/admin/issue-org-key",
+  tags: ["admin"],
+  summary: "Provision an org HMAC API key",
+  request: {
+    body: {
+      required: true,
+      content: { "application/json": { schema: IssueOrgKeyReqSchema } },
+    },
+  },
+  responses: {
+    200: { description: "Issued; returns plaintext key once." },
+    400: { description: "Validation failed.", content: { "application/json": { schema: ErrorResponseSchema } } },
+    401: { description: "Bad admin key.", content: { "application/json": { schema: ErrorResponseSchema } } },
+    503: { description: "Admin disabled.", content: { "application/json": { schema: ErrorResponseSchema } } },
+  },
+});
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function POST(req: NextRequest) {
+async function constantTimeEq(a: string, b: string): Promise<boolean> {
+  if (a.length !== b.length) return false;
+  const { timingSafeEqual } = await import("crypto");
+  try {
+    return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  } catch {
+    return false;
+  }
+}
+
+export const POST = withApiLog("/api/v7/admin/issue-org-key", async (req: NextRequest, ctx) => {
   const adminKey = process.env.Z0TZ_ADMIN_KEY;
   if (!adminKey) {
+    ctx.errorCode = "admin_disabled";
+    return errorResponse(503, "admin_disabled", v7CorsHeaders);
+  }
+  const provided = req.headers.get("x-z0tz-admin-key") ?? "";
+  const ok = await constantTimeEq(provided, adminKey);
+  if (!ok) {
+    ctx.errorCode = "unauthorized";
+    return errorResponse(401, "unauthorized", v7CorsHeaders);
+  }
+
+  const json = await parseJson(req, v7CorsHeaders);
+  if (!json.ok) { ctx.errorCode = "invalid_json"; return json.response; }
+
+  const parsed = IssueOrgKeyReqSchema.safeParse(json.value);
+  if (!parsed.success) {
+    ctx.errorCode = "validation_failed";
     return NextResponse.json(
-      { error: "admin-disabled (set Z0TZ_ADMIN_KEY env on the server to enable)" },
-      { status: 503, headers: v7CorsHeaders },
+      {
+        error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+        code: "validation_failed",
+      },
+      { status: 400, headers: v7CorsHeaders },
     );
   }
-  const provided = req.headers.get("x-z0tz-admin-key");
-  if (provided !== adminKey) {
-    // Anti-enumeration: same status + text whether the key is wrong or missing.
-    return NextResponse.json({ error: "unauthorized" }, { status: 401, headers: v7CorsHeaders });
-  }
+
   try {
-    const body = await req.json();
-    const { orgName, subdomainRoot, tier, contactEmail } = body ?? {};
-    if (!orgName || !subdomainRoot) {
-      return NextResponse.json(
-        { error: "Missing orgName or subdomainRoot" },
-        { status: 400, headers: v7CorsHeaders },
-      );
-    }
+    const { orgName, subdomainRoot, tier, contactEmail } = parsed.data;
     const subdomainRootHash = keccak256(toBytes(String(subdomainRoot).toLowerCase()));
     const issued = await issueOrgKey({
-      orgName: String(orgName),
+      orgName,
       subdomainRootHash,
-      tier: tier ? String(tier) : undefined,
-      contactEmail: contactEmail ? String(contactEmail) : null,
+      tier,
+      contactEmail: contactEmail ?? null,
     });
+    ctx.orgId = issued.key_id;
     return NextResponse.json(
       {
         key_id: issued.key_id,
@@ -60,13 +90,18 @@ export async function POST(req: NextRequest) {
         subdomain_root_hash: issued.subdomain_root_hash,
         tier: issued.tier,
         created_at: issued.created_at,
-        // The plaintext key is returned ONCE — the caller must save it.
+        // Plaintext key returned ONCE — caller must save it.
         plaintext_api_key: issued.plaintext,
-        usage: `pass header 'X-Z0tz-Org-Key: ${issued.plaintext}' on /api/v7/org/* calls`,
+        usage:
+          "M-7 HMAC-over-body auth. On every /api/v7/org/* call, compute " +
+          "sig = HMAC_SHA256(plaintext_api_key, `${ts}|${METHOD}|${path}|${sha256Hex(body)}`) " +
+          "and send `X-Z0tz-Org-Auth: keyId=<key_id>;ts=<unix-ms>;sig=<64-hex>`. " +
+          "ts must be within ±5 min of server clock.",
       },
       { headers: v7CorsHeaders },
     );
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "issue-org-key failed" }, { status: 500, headers: v7CorsHeaders });
+    ctx.errorCode = "issue_failed";
+    return errorResponse(500, "issue_failed", v7CorsHeaders, e);
   }
-}
+});

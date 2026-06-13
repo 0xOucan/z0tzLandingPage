@@ -6,6 +6,8 @@ import {
   TezcatliApyResponseSchema,
 } from "@/lib/openapi/schemas-v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
+import { errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 v7Registry.registerPath({
   method: "get",
@@ -32,19 +34,20 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withApiLog("/api/v7/tezcatli/apy", async (req: NextRequest, ctx) => {
   try {
     const chainIdStr = new URL(req.url).searchParams.get("chainId");
-    if (!chainIdStr)
+    if (!chainIdStr) {
+      ctx.errorCode = "validation_failed";
       return NextResponse.json({ error: "missing chainId" }, { status: 400, headers: v7CorsHeaders });
+    }
     const chainId = Number(chainIdStr);
+    ctx.chainId = chainId;
     const apyBps = await readCurrentApyBps(chainId);
     const apyPercent = (apyBps / 100).toFixed(2);
     return NextResponse.json({ chainId, apyBps, apyPercent }, { headers: v7CorsHeaders });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e.message ?? "read failed" },
-      { status: 500, headers: v7CorsHeaders },
-    );
+    ctx.errorCode = "read_failed";
+    return errorResponse(500, "read_failed", v7CorsHeaders, e);
   }
-}
+});

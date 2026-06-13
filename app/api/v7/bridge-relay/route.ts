@@ -1,56 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  createPublicClient, createWalletClient, decodeEventLog, keccak256, encodeAbiParameters,
-  parseAbiItem, type Address, type Hex,
+  createPublicClient, createWalletClient, decodeAbiParameters, decodeEventLog,
+  keccak256, encodeAbiParameters, parseAbiItem, type Address, type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
+import { z } from "zod";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { makeTransport } from "@/lib/relayer/rpc";
 import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
-import { v7CorsHeaders } from "@/lib/openapi/registry";
+import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
 import { v7Deployment } from "@/lib/relayer/v7";
+import { withApiLog, type LoggedContext } from "@/lib/relayer/request-log";
+import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
+import { consumeToken, callerIpKey } from "@/lib/relayer/rate-limit";
+import {
+  BridgeRelayReqSchema,
+  BridgeRelayResponseSchema,
+  ErrorResponseSchema,
+} from "@/lib/openapi/schemas-v7";
+import { client as tursoClient, isEnabled as tursoEnabled } from "@/lib/indexer/turso-v7";
 
-// V7 cross-chain delivery (steps 2 + 3 of the relayer-attested flow).
-//
-// TODO(V7-FINAL #1/#2 — human review): the source-side
-// `Z0tzInternalBridge.dispatchPlaintextOut` / `dispatchPlaintext` / `Intent`
-// pathway was removed in V7-final. The src side is now:
-//   1) ledger.spend with srcStealth → vault unshields encrypted balance to srcStealth
-//   2) the stealth itself (off-chain CLI/relayer fund-stealth gas) calls
-//      zusdcMessenger.depositForBurn directly
-// That means src txs emit ONLY `MessageSent` (cctp-clone), NOT the routing
-// `InternalMessageSent` this endpoint also expects. The dest side still needs
-// to deliver an InternalMessage to credit the destination ledger / cashout —
-// but its source MUST be reworked to come from the relayer's own
-// reconstructed routing payload, not from a src-emitted InternalMessageSent.
-// Until that rewrite lands this route will return the "did not emit
-// InternalMessageSent" error for every V7-final src tx. Pre-redeploy, leave
-// as-is (typechecks); post-redeploy, gut + rebuild around the cctp-clone
-// MessageSent + a relayer-constructed routing message.
-//
-// Assumes step 1 (Z0tzInternalBridge.dispatchPlaintextOut on src — pulls
-// zUSDC liquidity from the relayer's own balance, burns via the cctp-clone
-// messenger, emits the routing InternalMessageSent) has already run.
-// The caller passes the src dispatch tx hash; this endpoint:
-//
-//   2. Decodes the cctp-clone MessageSent log → signs the
-//      ZUSDCMessageTransmitterReceive digest with RELAYER_PRIVATE_KEY (the
-//      same key the messenger has set as attestationSigner on every chain)
-//      → calls destTransmitter.receiveMessage(message, attestation). Mints
-//      zUSDC at the dest bridge address (CREATE2-identical across chains).
-//
-//   3. Decodes the routing InternalMessageSent log → signs the
-//      Z0tzInternalBridgeReceive digest → calls destBridge.receiveInternal.
-//      That contract distributes the minted zUSDC according to the
-//      InternalMessage's action: for CrossChainCashout it transfers to the
-//      destAddress; for CrossChainInternal it credits the destination
-//      account's encrypted ledger balance via creditFromVault. Either way
-//      the user / recipient sees the result without further action.
-//
-// Replay safety: the dest contracts both track usedNonces[sourceDomain].
-// Idempotent — a second call with the same src tx returns the existing
-// dest txs without re-signing.
+/**
+ * V7-FINAL src-side cross-chain delivery.
+ *
+ * Patch #1 + #2 deleted the source-side `Z0tzInternalBridge.dispatchPlaintext`
+ * path. The ledger now unshields directly to a user-supplied `srcStealth`
+ * via `vault.confidentialTransferOut`, and the stealth itself calls
+ * `ZUSDCTokenMessenger.depositForBurn` off-chain. This endpoint therefore
+ * sees ONE attested channel: the cctp-clone `MessageSent(bytes)` emitted by
+ * `ZUSDCMessageTransmitter`. The legacy `InternalMessageSent` event no longer
+ * exists.
+ *
+ * Flow:
+ *   1. Load the src tx receipt; require exactly one `MessageSent`.
+ *   2. Decode the cctp-clone Message struct; map destinationDomain → chainId.
+ *      Cross-check that the caller-supplied `dstChainId` matches.
+ *   3. Sign the EIP-191 digest the dest transmitter expects:
+ *        keccak256(abi.encode("ZUSDCMessageTransmitterReceive",
+ *                             destChainId, destTransmitter, message))
+ *   4. Submit `receiveMessage(message, signature)` on the dest transmitter.
+ *      If the dest recipient is the local `Z0tzInternalBridge`, the
+ *      transmitter's call into the messenger then records `pendingMint` and
+ *      mints zUSDC to the bridge — re-crediting the ledger happens inside
+ *      the bridge contract chain (no extra relayer work needed here).
+ *   5. Return `{dstTxHash, status: "delivered" | "already-used"}`.
+ *
+ * Idempotency: `(srcChainId, srcTxHash)` is a primary key in `bridge_replays`.
+ * A second call returns the prior dest tx without re-submitting.
+ */
 
 const CHAINS: Record<number, any> = {
   84532: baseSepolia,
@@ -59,33 +57,22 @@ const CHAINS: Record<number, any> = {
   31337: hardhat,
 };
 
-// Domain → chainId. Mirrors V7 deployment's chainIdToDomain mapping.
-// arb-sepolia, base-sepolia, eth-sepolia (CCTP V2 domain numbers).
+// Z0tz CCTP-clone domain → EVM chain id (matches deploy.ts wiring).
 const DOMAIN_TO_CHAIN_ID: Record<number, number> = {
-  3: 421614,   // arb-sepolia
-  6: 84532,    // base-sepolia
-  0: 11155111, // eth-sepolia
+  3: 421614,    // arb-sepolia
+  6: 84532,     // base-sepolia
+  0: 11155111,  // eth-sepolia
 };
 
 const MessageSentEvent = parseAbiItem("event MessageSent(bytes message)");
-const InternalMessageSentEvent = parseAbiItem("event InternalMessageSent(uint64 indexed messageNonce, bytes encoded)");
 
 const transmitterAbi = [
   { name: "receiveMessage", type: "function", stateMutability: "nonpayable",
     inputs: [{ type: "bytes", name: "message" }, { type: "bytes", name: "attestation" }],
     outputs: [{ type: "bool" }] },
-  { name: "localDomain", type: "function", stateMutability: "view",
-    inputs: [], outputs: [{ type: "uint32" }] },
 ] as const;
 
-const internalBridgeAbi = [
-  { name: "receiveInternal", type: "function", stateMutability: "nonpayable",
-    inputs: [{ type: "bytes", name: "message" }, { type: "bytes", name: "attestation" }],
-    outputs: [] },
-] as const;
-
-// Decode the abi.encode-d Message (struct) the cctp-clone emits. Field
-// order MUST match ZUSDCMessageTransmitter.sol's struct exactly.
+// Mirrors ZUSDCMessageTransmitter.Message exactly. Field order load-bearing.
 const cctpMessageTypes = [
   { name: "version", type: "uint32" },
   { name: "sourceDomain", type: "uint32" },
@@ -97,36 +84,16 @@ const cctpMessageTypes = [
   { name: "messageBody", type: "bytes" },
 ] as const;
 
-const internalMessageTypes = [
-  { name: "version", type: "uint8" },
-  { name: "sourceDomain", type: "uint32" },
-  { name: "destinationDomain", type: "uint32" },
-  { name: "nonce", type: "uint64" },
-  { name: "burnNonce", type: "uint64" },
-  { name: "action", type: "uint8" },
-  { name: "token", type: "address" },
-  { name: "destAccount", type: "address" },
-  { name: "destAddress", type: "address" },
-  { name: "viewer", type: "address" },
+// ZUSDCTokenMessenger.BurnMessage (informational — returned in the response).
+const burnMessageTypes = [
+  { name: "burnToken", type: "address" },
+  { name: "mintRecipient", type: "address" },
   { name: "amount", type: "uint256" },
+  { name: "messageSender", type: "address" },
+  { name: "burnNonce", type: "uint64" },
 ] as const;
 
-function attestationDigest(tag: string, destChainId: bigint, destContract: Address, message: Hex): Hex {
-  return keccak256(
-    encodeAbiParameters(
-      [{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "bytes" }],
-      [
-        keccak256(new TextEncoder().encode(tag)).slice(0, 66) as Hex, // bytes32 from string-cast: keep as raw bytes32 literal mapping below
-        destChainId,
-        destContract,
-        message,
-      ],
-    ),
-  );
-}
-
-// The contracts use Solidity's `bytes32("...")` literal which LEFT-aligns
-// + right-pads. encodeBytes32String matches that exactly.
+// Solidity `bytes32("…")` literal: left-aligned, right-padded with zeros.
 function tagBytes32(s: string): Hex {
   const enc = new TextEncoder().encode(s);
   if (enc.length > 32) throw new Error(`tag ${s} > 32 bytes`);
@@ -135,162 +102,320 @@ function tagBytes32(s: string): Hex {
   return ("0x" + Buffer.from(padded).toString("hex")) as Hex;
 }
 
+// ── bridge_replays durable idempotency ─────────────────────────────────────
+
+let _bridgeReplaysReady = false;
+async function ensureBridgeReplaysSchema(): Promise<void> {
+  if (_bridgeReplaysReady || !tursoEnabled()) return;
+  try {
+    await tursoClient().execute(
+      `CREATE TABLE IF NOT EXISTS bridge_replays (
+        src_chain_id INTEGER NOT NULL,
+        src_tx_hash  TEXT    NOT NULL,
+        dst_chain_id INTEGER NOT NULL,
+        dst_tx_hash  TEXT    NOT NULL,
+        status       TEXT    NOT NULL,
+        ts           INTEGER NOT NULL,
+        PRIMARY KEY (src_chain_id, src_tx_hash)
+      )`,
+    );
+    try {
+      await tursoClient().execute(
+        `CREATE INDEX IF NOT EXISTS idx_bridge_replays_dst ON bridge_replays(dst_chain_id, ts)`,
+      );
+    } catch { /* swallow */ }
+    _bridgeReplaysReady = true;
+  } catch { /* swallow */ }
+}
+
+type ReplayRow = { dstTxHash: string; status: "delivered" | "already-used"; dstChainId: number };
+
+async function lookupReplay(srcChainId: number, srcTxHash: string): Promise<ReplayRow | null> {
+  if (!tursoEnabled()) return null;
+  try {
+    await ensureBridgeReplaysSchema();
+    const r = await tursoClient().execute({
+      sql: `SELECT dst_chain_id, dst_tx_hash, status FROM bridge_replays
+            WHERE src_chain_id = ? AND src_tx_hash = ? LIMIT 1`,
+      args: [srcChainId, srcTxHash.toLowerCase()],
+    });
+    const row = r.rows?.[0];
+    if (!row) return null;
+    return {
+      dstChainId: Number(row.dst_chain_id),
+      dstTxHash: String(row.dst_tx_hash),
+      status: String(row.status) as "delivered" | "already-used",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function recordReplay(row: { srcChainId: number; srcTxHash: string; dstChainId: number; dstTxHash: string; status: "delivered" | "already-used" }): Promise<void> {
+  if (!tursoEnabled()) return;
+  try {
+    await ensureBridgeReplaysSchema();
+    await tursoClient().execute({
+      sql: `INSERT OR IGNORE INTO bridge_replays
+              (src_chain_id, src_tx_hash, dst_chain_id, dst_tx_hash, status, ts)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+      args: [
+        row.srcChainId,
+        row.srcTxHash.toLowerCase(),
+        row.dstChainId,
+        row.dstTxHash.toLowerCase(),
+        row.status,
+        Date.now(),
+      ],
+    });
+  } catch { /* swallow */ }
+}
+
+// ── OpenAPI registration ───────────────────────────────────────────────────
+
+v7Registry.registerPath({
+  method: "post",
+  path: "/api/v7/bridge-relay",
+  tags: ["user-tier"],
+  summary: "Deliver a V7 cross-chain spend on the destination chain",
+  description:
+    "Reads the source-chain tx, extracts the cctp-clone MessageSent event, " +
+    "signs the dest transmitter's attestation digest, and submits " +
+    "receiveMessage(message, signature) on the destination ZUSDCMessageTransmitter. " +
+    "Idempotent on (srcChainId, srcTxHash).",
+  request: {
+    body: {
+      required: true,
+      content: { "application/json": { schema: BridgeRelayReqSchema } },
+    },
+  },
+  responses: {
+    200: { description: "Delivered (or replayed).", content: { "application/json": { schema: BridgeRelayResponseSchema } } },
+    400: { description: "Malformed body.", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "Source tx not found.", content: { "application/json": { schema: ErrorResponseSchema } } },
+    409: { description: "Replay — same (srcChainId, srcTxHash) already delivered.", content: { "application/json": { schema: BridgeRelayResponseSchema } } },
+    422: { description: "Source tx has no MessageSent event.", content: { "application/json": { schema: ErrorResponseSchema } } },
+    429: { description: "Rate-limited.", content: { "application/json": { schema: ErrorResponseSchema } } },
+    503: { description: "Relayer disabled (env-flag off).", content: { "application/json": { schema: ErrorResponseSchema } } },
+  },
+});
+
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function POST(req: NextRequest) {
+type BridgeRelayReq = z.infer<typeof BridgeRelayReqSchema>;
+
+async function handler(req: NextRequest, ctx: LoggedContext): Promise<NextResponse> {
   const blocked = geofenceResponse(req, v7CorsHeaders);
   if (blocked) return blocked;
 
+  // Bridge is expensive — tighter cap than the per-tier defaults; sandbox=5/min
+  // is enforced via the bucket key, while the verified shape (30/min) is left
+  // to the per-tier path by piggybacking on a "|bridge-relay" suffix so the
+  // limiter's CAPACITY table treats it as a distinct bucket per caller.
+  const rlKey = `${callerIpKey(req)}|bridge-relay`;
+  const allowed = await consumeToken(rlKey, "sandbox");
+  if (!allowed) {
+    ctx.errorCode = "rate_limited";
+    return errorResponse(429, "rate_limited", v7CorsHeaders);
+  }
+
+  const parsedBody = await parseJson(req, v7CorsHeaders);
+  if (!parsedBody.ok) {
+    ctx.errorCode = "validation_failed";
+    return parsedBody.response;
+  }
+  const parsed = BridgeRelayReqSchema.safeParse(parsedBody.value);
+  if (!parsed.success) {
+    ctx.errorCode = "validation_failed";
+    return NextResponse.json(
+      { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), code: "validation_failed" },
+      { status: 400, headers: v7CorsHeaders },
+    );
+  }
+  const { srcChainId, dstChainId, srcTxHash } = parsed.data as BridgeRelayReq;
+
+  // 409 — already replayed.
+  const prior = await lookupReplay(srcChainId, srcTxHash);
+  if (prior) {
+    ctx.chainId = prior.dstChainId;
+    ctx.txHash = prior.dstTxHash;
+    return NextResponse.json(
+      { dstTxHash: prior.dstTxHash, status: prior.status },
+      { status: 409, headers: v7CorsHeaders },
+    );
+  }
+
+  const relayerKey = process.env.RELAYER_PRIVATE_KEY;
+  if (!relayerKey) {
+    ctx.errorCode = "relayer_disabled";
+    return errorResponse(503, "relayer_disabled", v7CorsHeaders);
+  }
+
+  const srcChain = CHAINS[srcChainId];
+  const srcRpc = process.env[`RPC_URL_${srcChainId}`];
+  if (!srcChain || !srcRpc) {
+    ctx.errorCode = "validation_failed";
+    return errorResponse(400, "validation_failed", v7CorsHeaders);
+  }
+  const dstChain = CHAINS[dstChainId];
+  const dstRpc = process.env[`RPC_URL_${dstChainId}`];
+  if (!dstChain || !dstRpc) {
+    ctx.errorCode = "validation_failed";
+    return errorResponse(400, "validation_failed", v7CorsHeaders);
+  }
+
+  let destDeploy;
   try {
-    const { srcChainId, srcTxHash } = await req.json();
-    if (!srcChainId || !srcTxHash) {
-      return NextResponse.json(
-        { error: "Missing srcChainId or srcTxHash" },
-        { status: 400, headers: v7CorsHeaders },
-      );
-    }
-    const relayerKey = process.env.RELAYER_PRIVATE_KEY;
-    if (!relayerKey) {
-      return NextResponse.json({ error: "relayer-disabled" }, { status: 503, headers: v7CorsHeaders });
-    }
-    const srcChain = CHAINS[srcChainId];
-    const srcRpc = process.env[`RPC_URL_${srcChainId}`];
-    if (!srcChain || !srcRpc) {
-      return NextResponse.json({ error: `src chain ${srcChainId} not supported` }, { status: 400, headers: v7CorsHeaders });
-    }
+    destDeploy = v7Deployment(dstChainId);
+  } catch (e) {
+    ctx.errorCode = "internal";
+    return errorResponse(500, "internal", v7CorsHeaders, e);
+  }
+  const destTransmitter = destDeploy.zusdcTransmitter as Address | undefined;
+  if (!destTransmitter) {
+    ctx.errorCode = "internal";
+    return errorResponse(500, "internal", v7CorsHeaders, new Error("dest zusdcTransmitter missing"));
+  }
 
-    const account = privateKeyToAccount(relayerKey as Hex);
-    const srcPub = createPublicClient({ chain: srcChain, transport: makeTransport(srcRpc) });
-    const receipt = await srcPub.getTransactionReceipt({ hash: srcTxHash as Hex });
-    if (!receipt) {
-      return NextResponse.json({ error: "src tx not found" }, { status: 404, headers: v7CorsHeaders });
-    }
+  const account = privateKeyToAccount(relayerKey as Hex);
+  const srcPub = createPublicClient({ chain: srcChain, transport: makeTransport(srcRpc) });
 
-    // 1. Find MessageSent + InternalMessageSent in the src logs.
-    let cctpMessage: Hex | null = null;
-    let internalMessage: Hex | null = null;
-    for (const log of receipt.logs) {
-      try {
-        const ev = decodeEventLog({ abi: [MessageSentEvent], data: log.data, topics: log.topics });
-        cctpMessage = ev.args.message as Hex;
-      } catch {}
-      try {
-        const ev = decodeEventLog({ abi: [InternalMessageSentEvent], data: log.data, topics: log.topics });
-        internalMessage = ev.args.encoded as Hex;
-      } catch {}
-    }
-    if (!cctpMessage || !internalMessage) {
-      return NextResponse.json(
-        { error: `src tx ${srcTxHash} did not emit MessageSent + InternalMessageSent; was dispatchPlaintextOut actually called?` },
-        { status: 400, headers: v7CorsHeaders },
-      );
-    }
+  let receipt;
+  try {
+    receipt = await srcPub.getTransactionReceipt({ hash: srcTxHash as Hex });
+  } catch {
+    receipt = null;
+  }
+  if (!receipt) {
+    ctx.errorCode = "not_found";
+    return errorResponse(404, "not_found", v7CorsHeaders);
+  }
 
-    // 2. Decode dest domain from EITHER message (they must agree).
-    const [cctpDecoded] = (await import("viem")).decodeAbiParameters(
+  // 1. Find MessageSent in the src receipt.
+  let cctpMessage: Hex | null = null;
+  for (const log of receipt.logs) {
+    try {
+      const ev = decodeEventLog({ abi: [MessageSentEvent], data: log.data, topics: log.topics });
+      cctpMessage = ev.args.message as Hex;
+      break;
+    } catch { /* not this log */ }
+  }
+  if (!cctpMessage) {
+    ctx.errorCode = "no_message_sent";
+    return errorResponse(422, "no_message_sent", v7CorsHeaders);
+  }
+
+  // 2. Decode the cctp-clone Message + the inner BurnMessage. Cross-check
+  //    the dest domain against the caller-supplied dstChainId so the relayer
+  //    can't be redirected by a lying client (the message is the source of
+  //    truth; dstChainId is a sanity assertion).
+  let cctpDecoded: any;
+  let burnBody: any;
+  try {
+    [cctpDecoded] = decodeAbiParameters(
       [{ type: "tuple", components: cctpMessageTypes as any }],
       cctpMessage,
     ) as any;
-    const [intDecoded] = (await import("viem")).decodeAbiParameters(
-      [{ type: "tuple", components: internalMessageTypes as any }],
-      internalMessage,
+    [burnBody] = decodeAbiParameters(
+      [{ type: "tuple", components: burnMessageTypes as any }],
+      cctpDecoded.messageBody as Hex,
     ) as any;
-    if (cctpDecoded.destinationDomain !== intDecoded.destinationDomain) {
-      return NextResponse.json(
-        { error: `dest-domain mismatch: cctp=${cctpDecoded.destinationDomain} internal=${intDecoded.destinationDomain}` },
-        { status: 500, headers: v7CorsHeaders },
-      );
-    }
-    const destDomain = Number(cctpDecoded.destinationDomain);
-    const destChainId = DOMAIN_TO_CHAIN_ID[destDomain];
-    if (!destChainId) {
-      return NextResponse.json({ error: `unknown dest domain ${destDomain}` }, { status: 400, headers: v7CorsHeaders });
-    }
-    const destChain = CHAINS[destChainId];
-    const destRpc = process.env[`RPC_URL_${destChainId}`];
-    if (!destChain || !destRpc) {
-      return NextResponse.json({ error: `dest chain ${destChainId} not configured` }, { status: 500, headers: v7CorsHeaders });
-    }
-    const destDeploy = v7Deployment(destChainId);
-    const destTransmitter = destDeploy.zusdcTransmitter as Address;
-    const destBridge = destDeploy.internalBridge as Address;
-    if (!destTransmitter || !destBridge) {
-      return NextResponse.json({ error: "dest deployment missing zusdcTransmitter / internalBridge" }, { status: 500, headers: v7CorsHeaders });
-    }
-
-    // 3. Sign + submit receiveMessage on dest transmitter.
-    const destPub = createPublicClient({ chain: destChain, transport: makeTransport(destRpc) });
-    const destWallet = createWalletClient({ account, chain: destChain, transport: makeTransport(destRpc) });
-
-    const cctpInner = keccak256(
-      encodeAbiParameters(
-        [{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "bytes" }],
-        [tagBytes32("ZUSDCMessageTransmitterReceive"), BigInt(destChainId), destTransmitter, cctpMessage],
-      ),
-    );
-    const cctpAttestation = await account.signMessage({ message: { raw: cctpInner } });
-
-    let cctpTxHash: Hex | "already-used";
-    try {
-      cctpTxHash = await destWallet.writeContract({
-        address: destTransmitter, abi: transmitterAbi, functionName: "receiveMessage",
-        args: [cctpMessage, cctpAttestation],
-        chain: destChain, account,
-      });
-      await destPub.waitForTransactionReceipt({ hash: cctpTxHash });
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
-      if (msg.includes("AlreadyUsed") || msg.includes("0x9ad0fe48")) {
-        cctpTxHash = "already-used";
-      } else {
-        return NextResponse.json({ error: `cctp receiveMessage failed: ${msg}` }, { status: 500, headers: v7CorsHeaders });
-      }
-    }
-
-    // 4. Sign + submit receiveInternal on dest internal bridge.
-    const intInner = keccak256(
-      encodeAbiParameters(
-        [{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "bytes" }],
-        [tagBytes32("Z0tzInternalBridgeReceive"), BigInt(destChainId), destBridge, internalMessage],
-      ),
-    );
-    const intAttestation = await account.signMessage({ message: { raw: intInner } });
-
-    let internalTxHash: Hex | "already-used";
-    try {
-      internalTxHash = await destWallet.writeContract({
-        address: destBridge, abi: internalBridgeAbi, functionName: "receiveInternal",
-        args: [internalMessage, intAttestation],
-        chain: destChain, account,
-      });
-      await destPub.waitForTransactionReceipt({ hash: internalTxHash });
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
-      if (msg.includes("AlreadyUsed")) {
-        internalTxHash = "already-used";
-      } else {
-        return NextResponse.json({ error: `receiveInternal failed: ${msg}` }, { status: 500, headers: v7CorsHeaders });
-      }
-    }
-
-    if (typeof cctpTxHash !== "string" || cctpTxHash.startsWith("0x")) {
-      triggerScanAndRecord({ chainId: destChainId, txHash: cctpTxHash as Hex, opKind: "bridge-cctp-receive", req });
-    }
-    if (typeof internalTxHash !== "string" || internalTxHash.startsWith("0x")) {
-      triggerScanAndRecord({ chainId: destChainId, txHash: internalTxHash as Hex, opKind: "bridge-internal-receive", req });
-    }
-
-    return NextResponse.json(
-      {
-        srcChainId, destChainId, destDomain,
-        cctp: { destTransmitter, txHash: cctpTxHash },
-        internal: { destBridge, txHash: internalTxHash, action: Number(intDecoded.action), amount: intDecoded.amount.toString() },
-      },
-      { headers: v7CorsHeaders },
-    );
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "bridge-relay failed" }, { status: 500, headers: v7CorsHeaders });
+  } catch (e) {
+    ctx.errorCode = "decode_failed";
+    return errorResponse(422, "decode_failed", v7CorsHeaders, e);
   }
+
+  const destDomain = Number(cctpDecoded.destinationDomain);
+  const expectedDestChainId = DOMAIN_TO_CHAIN_ID[destDomain];
+  if (!expectedDestChainId || expectedDestChainId !== dstChainId) {
+    ctx.errorCode = "dest_mismatch";
+    return errorResponse(400, "dest_mismatch", v7CorsHeaders);
+  }
+
+  // 3. Sign the dest transmitter's EIP-191 digest. Bound to
+  //    (chainid, destTransmitter) so it can't replay across deployments.
+  const inner = keccak256(
+    encodeAbiParameters(
+      [{ type: "bytes32" }, { type: "uint256" }, { type: "address" }, { type: "bytes" }],
+      [
+        tagBytes32("ZUSDCMessageTransmitterReceive"),
+        BigInt(dstChainId),
+        destTransmitter,
+        cctpMessage,
+      ],
+    ),
+  );
+  const attestation = await account.signMessage({ message: { raw: inner } });
+
+  // 4. Submit receiveMessage on the dest transmitter.
+  const destPub = createPublicClient({ chain: dstChain, transport: makeTransport(dstRpc) });
+  const destWallet = createWalletClient({ account, chain: dstChain, transport: makeTransport(dstRpc) });
+
+  let dstTxHash: Hex;
+  let status: "delivered" | "already-used" = "delivered";
+  try {
+    dstTxHash = await destWallet.writeContract({
+      address: destTransmitter,
+      abi: transmitterAbi,
+      functionName: "receiveMessage",
+      args: [cctpMessage, attestation],
+      chain: dstChain,
+      account,
+    });
+    await destPub.waitForTransactionReceipt({ hash: dstTxHash });
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    if (msg.includes("AlreadyUsed") || msg.includes("0x9ad0fe48")) {
+      // The dest already consumed this (sourceDomain, nonce). Treat as a
+      // successful no-op; surface the prior delivery if we have one cached.
+      const cached = await lookupReplay(srcChainId, srcTxHash);
+      if (cached) {
+        ctx.chainId = cached.dstChainId;
+        ctx.txHash = cached.dstTxHash;
+        return NextResponse.json(
+          { dstTxHash: cached.dstTxHash, status: "already-used" as const },
+          { status: 200, headers: v7CorsHeaders },
+        );
+      }
+      // No cached row — record the AlreadyUsed marker with a zero hash so a
+      // second call returns 409 instead of re-quoting.
+      dstTxHash = ("0x" + "00".repeat(32)) as Hex;
+      status = "already-used";
+    } else {
+      ctx.errorCode = "submit_failed";
+      return errorResponse(500, "submit_failed", v7CorsHeaders, e);
+    }
+  }
+
+  await recordReplay({ srcChainId, srcTxHash, dstChainId, dstTxHash, status });
+
+  if (status === "delivered") {
+    triggerScanAndRecord({ chainId: dstChainId, txHash: dstTxHash, opKind: "bridge-cctp-receive", req });
+  }
+
+  ctx.chainId = dstChainId;
+  ctx.txHash = dstTxHash;
+
+  return NextResponse.json(
+    {
+      dstTxHash,
+      status,
+      // Diagnostic fields — not part of the schema contract, but useful for
+      // CLI debugging. The schema covers only {dstTxHash, status}; clients
+      // SHOULD ignore unknown fields.
+      destDomain,
+      burn: burnBody
+        ? {
+            amount: burnBody.amount?.toString?.() ?? String(burnBody.amount),
+            mintRecipient: burnBody.mintRecipient as Address,
+            burnNonce: burnBody.burnNonce?.toString?.() ?? String(burnBody.burnNonce),
+          }
+        : undefined,
+    },
+    { status: 200, headers: v7CorsHeaders },
+  );
 }
+
+export const POST = withApiLog("/api/v7/bridge-relay", handler);

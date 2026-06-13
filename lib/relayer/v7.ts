@@ -14,6 +14,7 @@ import { createPublicClient, createWalletClient, http, type Address, type Hex, t
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { makeTransport } from "./rpc";
+import { backfillFromReceipt } from "./name-cache";
 // F-6 was the wakeup call: maintaining the same wire shapes in two places
 // (landing + cli-v7) guarantees drift. The SDK is now the single source of
 // truth for every request/response interface. Submitter logic stays local
@@ -89,6 +90,33 @@ function clients(chainId: number) {
   };
 }
 
+/**
+ * Read-only public client — does NOT require RELAYER_PRIVATE_KEY. Used by
+ * routes that only need to call view functions (e.g. H-4 ownerX/Y gate in
+ * /api/v7/recover/artifact).
+ */
+export function publicClientFor(chainId: number) {
+  const chain = chainFor(chainId);
+  const rpc = envOrThrow(`RPC_URL_${chainId}`);
+  return createPublicClient({ chain, transport: makeTransport(rpc) });
+}
+
+// Minimal ABI for the Z0tzAccount ownerX()/ownerY() public getters.
+const accountOwnerAbi = [
+  { name: "ownerX", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { name: "ownerY", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+] as const;
+
+/** Read (ownerX, ownerY) from a Z0tzAccount on `chainId`. Throws on RPC error. */
+export async function readAccountOwner(chainId: number, account: Address): Promise<{ ownerX: bigint; ownerY: bigint }> {
+  const pub = publicClientFor(chainId);
+  const [ownerX, ownerY] = await Promise.all([
+    pub.readContract({ address: account, abi: accountOwnerAbi, functionName: "ownerX" }) as Promise<bigint>,
+    pub.readContract({ address: account, abi: accountOwnerAbi, functionName: "ownerY" }) as Promise<bigint>,
+  ]);
+  return { ownerX, ownerY };
+}
+
 async function estimateOrFallback(pub: any, args: any, fallback: bigint): Promise<bigint> {
   // 2x safety: eth_estimateGas under-funds FHE-heavy operations because the
   // CoFHE TaskManager's nested createTask delegatecalls allocate gas in 63/64
@@ -97,6 +125,36 @@ async function estimateOrFallback(pub: any, args: any, fallback: bigint): Promis
   // function that doesn't estimate cleanly still has a sane ceiling.
   try { const e = await pub.estimateContractGas(args); const safe = e * 2n; return safe > fallback ? safe : fallback; }
   catch { return fallback; }
+}
+
+/**
+ * V7-FINAL #11: name-cache backfill helper.
+ *
+ * Wait for the tx receipt + walk the registry events into the
+ * `name_resolutions` Turso table. Wrapped in try/catch and detached from
+ * the response path — a cache miss MUST NOT fail the relay.
+ */
+function scheduleNameCacheBackfill(opts: {
+  chainId: number;
+  pub: any;
+  txHash: Hex;
+  registryAddress: Address;
+  nameHint?: string;
+  parentHint?: Hex;
+}): void {
+  void (async () => {
+    try {
+      const receipt = await opts.pub.waitForTransactionReceipt({ hash: opts.txHash });
+      if (receipt.status !== "success") return;
+      await backfillFromReceipt({
+        chainId: opts.chainId,
+        receipt,
+        registryAddress: opts.registryAddress,
+        nameHint: opts.nameHint,
+        parentHint: opts.parentHint,
+      });
+    } catch { /* swallow — best-effort */ }
+  })();
 }
 
 // ── ABIs (minimal, match the deployed contracts) ─────────────────────────
@@ -238,7 +296,9 @@ export async function submitNameClaim(chainId: number, r: _NameReq): Promise<{ t
   // V7-FINAL #14: contract takes the cleartext `name` as the first param.
   const args = [r.name, r.nameHash, BigInt(r.nameLength), BigInt(r.pubX), BigInt(r.pubY), r.resolvedAccount, BigInt(r.sigR), BigInt(r.sigS)] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, account }, 400_000n);
-  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, gas } as any);
+  scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry, nameHint: r.name });
+  return { txHash };
 }
 
 // ── B2B SaaS: org admin ops ──────────────────────────────────────────────
@@ -264,7 +324,9 @@ export async function submitOrgClaimSubdomain(chainId: number, r: _OrgClaimSubRe
   // V7-FINAL #14: contract takes cleartext `leafSegment` first.
   const args = [r.leafSegment, tuple] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, account }, 600_000n);
-  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, gas } as any);
+  scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry, nameHint: r.leafSegment, parentHint: r.parentNameHash as Hex });
+  return { txHash };
 }
 
 export async function submitOrgRepointSubdomain(chainId: number, r: _OrgRepointReq): Promise<{ txHash: Hex }> {
@@ -276,7 +338,9 @@ export async function submitOrgRepointSubdomain(chainId: number, r: _OrgRepointR
     BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
   ] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "repointSubdomain", args, account }, 500_000n);
-  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "repointSubdomain", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "repointSubdomain", args, gas } as any);
+  scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry });
+  return { txHash };
 }
 
 export async function submitOrgRevokeSubdomain(chainId: number, r: _OrgRevokeReq): Promise<{ txHash: Hex }> {
@@ -287,7 +351,9 @@ export async function submitOrgRevokeSubdomain(chainId: number, r: _OrgRevokeReq
     BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
   ] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "revokeSubdomain", args, account }, 400_000n);
-  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "revokeSubdomain", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "revokeSubdomain", args, gas } as any);
+  scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry });
+  return { txHash };
 }
 
 export async function submitOrgSetPolicy(chainId: number, r: _OrgSetPolicyReq): Promise<{ txHash: Hex }> {
@@ -343,26 +409,34 @@ export async function submitNameClaimAsAuthority(chainId: number, r: _AuthClaimR
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.name, r.nameHash, BigInt(r.nameLength), r.resolvedAccount] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimAsAuthority", args, account }, 400_000n);
-  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimAsAuthority", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimAsAuthority", args, gas } as any);
+  scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry, nameHint: r.name });
+  return { txHash };
 }
 
 export async function submitSubdomainClaimAsAuthority(chainId: number, r: _AuthSubClaimReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.leafSegment, r.parentNameHash, r.leafNameHash, r.resolvedAccount] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainAsAuthority", args, account }, 400_000n);
-  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainAsAuthority", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainAsAuthority", args, gas } as any);
+  scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry, nameHint: r.leafSegment, parentHint: r.parentNameHash as Hex });
+  return { txHash };
 }
 
 export async function submitRepointAsAuthority(chainId: number, r: _AuthRepointReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.nameHash, r.newAccount] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "repointAsAuthority", args, account }, 300_000n);
-  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "repointAsAuthority", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "repointAsAuthority", args, gas } as any);
+  scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry });
+  return { txHash };
 }
 
 export async function submitRevokeAsAuthority(chainId: number, r: _AuthRevokeReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.nameHash] as const;
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "revokeAsAuthority", args, account }, 300_000n);
-  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "revokeAsAuthority", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "revokeAsAuthority", args, gas } as any);
+  scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry });
+  return { txHash };
 }

@@ -29,6 +29,8 @@ import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { v7Deployment } from "@/lib/relayer/v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
 import { ErrorResponseSchema } from "@/lib/openapi/schemas-v7";
+import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 // ── Sponsorship policy ──────────────────────────────────────────────
 // Hard caps on what the operator will cosign. Two protections:
@@ -148,33 +150,36 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: v7CorsHeaders });
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withApiLog("/api/v7/paymaster/cosign", async (req: NextRequest, ctx) => {
   try {
     const opKey = process.env.RELAYER_PRIVATE_KEY;
     if (!opKey) {
-      return NextResponse.json(
-        { error: "paymaster operator key not configured on this server" },
-        { status: 503, headers: v7CorsHeaders },
-      );
+      ctx.errorCode = "operator_disabled";
+      return errorResponse(503, "operator_disabled", v7CorsHeaders);
     }
-    const body = await req.json();
-    const parsed = CosignReqSchema.safeParse(body);
+    const json = await parseJson(req, v7CorsHeaders);
+    if (!json.ok) { ctx.errorCode = "invalid_json"; return json.response; }
+    const parsed = CosignReqSchema.safeParse(json.value);
     if (!parsed.success) {
       const msg = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      ctx.errorCode = "validation_failed";
       return NextResponse.json(
         { error: msg, code: "validation_failed" },
         { status: 400, headers: v7CorsHeaders },
       );
     }
     const { chainId, userOp, feeCap: feeCapStr, validUntil, validAfter } = parsed.data;
+    ctx.chainId = chainId;
     const feeCap = BigInt(feeCapStr);
     if (feeCap > MAX_FEE_CAP_WEI) {
+      ctx.errorCode = "fee_cap_exceeded";
       return NextResponse.json(
         { error: `feeCap ${feeCap} exceeds server cap ${MAX_FEE_CAP_WEI}`, code: "fee_cap_exceeded" },
         { status: 403, headers: v7CorsHeaders },
       );
     }
     if (validUntil < validAfter) {
+      ctx.errorCode = "validation_failed";
       return NextResponse.json(
         { error: "validUntil must be >= validAfter", code: "validation_failed" },
         { status: 400, headers: v7CorsHeaders },
@@ -182,12 +187,14 @@ export async function POST(req: NextRequest) {
     }
     const now = Math.floor(Date.now() / 1000);
     if (validUntil <= now) {
+      ctx.errorCode = "validation_failed";
       return NextResponse.json(
         { error: "validUntil already in the past", code: "validation_failed" },
         { status: 400, headers: v7CorsHeaders },
       );
     }
     if (validUntil - now > MAX_VALIDITY_WINDOW_SECS) {
+      ctx.errorCode = "validity_too_long";
       return NextResponse.json(
         { error: `validity window > ${MAX_VALIDITY_WINDOW_SECS}s — refuse to presign long windows`, code: "validity_too_long" },
         { status: 403, headers: v7CorsHeaders },
@@ -198,10 +205,8 @@ export async function POST(req: NextRequest) {
     const chain = chainFor(chainId);
     const rpc = process.env[`RPC_URL_${chainId}`];
     if (!rpc) {
-      return NextResponse.json(
-        { error: `RPC_URL_${chainId} not set on this server` },
-        { status: 503, headers: v7CorsHeaders },
-      );
+      ctx.errorCode = "rpc_missing";
+      return errorResponse(503, "rpc_missing", v7CorsHeaders);
     }
     const pub = createPublicClient({ chain, transport: makeTransport(rpc) });
     const operator = privateKeyToAccount(opKey.startsWith("0x") ? (opKey as Hex) : (`0x${opKey}` as Hex));
@@ -275,6 +280,7 @@ export async function POST(req: NextRequest) {
     // live configEpoch + the operator sig at the trailing offset.
     // AUDIT M-2: layout is now [52 prefix][32 feeCap][6 validUntil][6 validAfter][8 configEpoch][65 sig] = 169 bytes
     if (userOp.paymasterAndData.length < 2 + (52 + 32 + 6 + 6 + 8 + 65) * 2) {
+      ctx.errorCode = "validation_failed";
       return NextResponse.json(
         { error: "userOp.paymasterAndData too short — envelope prefix missing (expected 169 bytes incl. configEpoch slot)" },
         { status: 400, headers: v7CorsHeaders },
@@ -291,9 +297,7 @@ export async function POST(req: NextRequest) {
       { headers: v7CorsHeaders },
     );
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e.message ?? "cosign failed" },
-      { status: 500, headers: v7CorsHeaders },
-    );
+    ctx.errorCode = "cosign_failed";
+    return errorResponse(500, "cosign_failed", v7CorsHeaders, e);
   }
-}
+});

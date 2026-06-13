@@ -7,6 +7,8 @@ import {
   TxHashResponseSchema,
 } from "@/lib/openapi/schemas-v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
+import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 v7Registry.registerPath({
   method: "post",
@@ -48,33 +50,31 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withApiLog("/api/v7/cashin", async (req: NextRequest, ctx) => {
   const blocked = geofenceResponse(req, v7CorsHeaders);
-  if (blocked) return blocked;
-  if (!isEnabled())
-    return NextResponse.json({ error: "relayer-disabled" }, { status: 503, headers: v7CorsHeaders });
-  // OPEN endpoint (retail + B2B). Per-call auth comes from the contract:
-  // every accepted op carries a P-256 sig the on-chain validator verifies.
-  const finalize = async (_n: number) => {};
-  try {
-    const rawBody = await req.json();
-    const parsed = CashinReqSchema.safeParse(rawBody);
-    if (!parsed.success) {
-      await finalize(400);
-      return NextResponse.json(
-        { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), code: "validation_failed" },
-        { status: 400, headers: v7CorsHeaders },
-      );
-    }
-    const { chainId, sweep } = parsed.data;
-    const { txHash } = await submitSweep(chainId, sweep as unknown as SweepReq);
-    await finalize(200);
-    return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
-  } catch (e: any) {
-    await finalize(500);
+  if (blocked) { ctx.errorCode = "geofenced"; return blocked; }
+  if (!isEnabled()) {
+    ctx.errorCode = "relayer_disabled";
+    return errorResponse(503, "relayer_disabled", v7CorsHeaders);
+  }
+  const json = await parseJson(req, v7CorsHeaders);
+  if (!json.ok) { ctx.errorCode = "invalid_json"; return json.response; }
+  const parsed = CashinReqSchema.safeParse(json.value);
+  if (!parsed.success) {
+    ctx.errorCode = "validation_failed";
     return NextResponse.json(
-      { error: e.message ?? "submit failed" },
-      { status: 500, headers: v7CorsHeaders },
+      { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), code: "validation_failed" },
+      { status: 400, headers: v7CorsHeaders },
     );
   }
-}
+  const { chainId, sweep } = parsed.data;
+  ctx.chainId = chainId;
+  try {
+    const { txHash } = await submitSweep(chainId, sweep as unknown as SweepReq);
+    ctx.txHash = txHash;
+    return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
+  } catch (e: any) {
+    ctx.errorCode = "submit_failed";
+    return errorResponse(500, "submit_failed", v7CorsHeaders, e);
+  }
+});

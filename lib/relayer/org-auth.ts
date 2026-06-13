@@ -1,26 +1,41 @@
 /**
- * /api/v7/org/* HMAC-API-key middleware.
+ * /api/v7/org/* HMAC-over-body middleware (M-7).
  *
  * Auth flow:
- *   1. Client sends `X-Z0tz-Org-Key: z0tz_<key_id>_<secret>` header.
- *   2. We split out `key_id`, single-PK lookup in `org_keys`, bcrypt-compare
- *      the secret half. On match the call is "authenticated as org X."
- *   3. Every authenticated call is logged to `org_audit_log` (key_id + path
- *      + status + ts + hashed-IP). Audit-log writes ARE behavior — the
- *      response handler awaits the write before returning, so a Vercel
- *      function timeout never silently swallows the audit record.
+ *   1. Client sends `X-Z0tz-Org-Auth: keyId=<8-hex>;ts=<ms>;sig=<64-hex>`
+ *      where `sig = HMAC_SHA256(plaintext_key, `${ts}|${METHOD}|${path}|${sha256(body)}`)`.
+ *   2. Server parses the header, looks up the row by `keyId`, recomputes
+ *      the HMAC using the stored `hmac_key` plaintext, and constant-time
+ *      compares. `ts` must be within ±5 minutes of server clock.
+ *   3. Authenticated calls log to `org_audit_log` (key_id + path + status
+ *      + ts + hashed-IP). The response handler awaits the write before
+ *      returning so a Vercel timeout never silently drops the audit row.
+ *
+ * Why HMAC-over-body (not just-the-static-key, the old scheme):
+ *   The previous design only matched the static key header. An attacker
+ *   who intercepted a valid request could swap the body before forwarding
+ *   and the server would still accept it. HMAC over the body binds the
+ *   exact bytes the client signed, so any in-flight mutation invalidates
+ *   the request.
  *
  * Scope: every endpoint is implicitly org-scoped via `subdomain_root_hash`.
  * Handlers receive a typed `OrgAuthContext` and can ONLY operate on rows
  * matching `context.subdomainRootHash`.
  *
- * Anti-enumeration: 401 on a malformed key, missing key, AND wrong-secret
- * key. Same status, no specifier — the only information leaked is "auth
- * failed."
+ * Anti-enumeration: 401 on a malformed header, missing header, AND wrong
+ * signature. Same status, no specifier — the only information leaked is
+ * "auth failed."
+ *
+ * Body-handling notes:
+ *   - We `clone()` the request once and call `.text()` on the clone so we
+ *     can hash the body for the HMAC check WITHOUT consuming the original
+ *     stream — the handler still calls `req.json()` downstream.
+ *   - GET / DELETE etc. with no body use the empty string; `sha256("")`
+ *     is well-defined.
  */
 import { NextRequest, NextResponse } from "next/server";
 import {
-  authenticateOrgKey,
+  authenticateOrgRequest,
   logOrgRequest,
   type OrgKeyMeta,
 } from "@/lib/indexer/turso-v7";
@@ -74,15 +89,24 @@ export async function requireOrgAuth(
       finalize: (statusCode: number) => Promise<void>;
     }
 > {
-  const header = req.headers.get("x-z0tz-org-key");
-  const path = new URL(req.url).pathname;
+  const header = req.headers.get("x-z0tz-org-auth");
+  const url = new URL(req.url);
+  const path = url.pathname;
   const method = req.method;
   const ipHash = hashIp(clientIp(req));
 
+  // Clone before reading so the route handler can still call req.json().
+  let body = "";
+  try {
+    body = await req.clone().text();
+  } catch {
+    body = "";
+  }
+
   let meta: OrgKeyMeta | null = null;
   try {
-    meta = await authenticateOrgKey(header);
-  } catch (e) {
+    meta = await authenticateOrgRequest({ header, method, path, body });
+  } catch (_e) {
     // Turso outage / misconfig — fail closed.
     return NextResponse.json(
       { error: "auth backend unavailable" },

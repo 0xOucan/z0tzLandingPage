@@ -8,6 +8,8 @@ import {
   TxHashResponseSchema,
 } from "@/lib/openapi/schemas-v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
+import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 // ── OpenAPI registration ────────────────────────────────────────────────
 v7Registry.registerPath({
@@ -55,35 +57,41 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withApiLog("/api/v7/org/subdomain", async (req: NextRequest, ctx) => {
   const blocked = geofenceResponse(req, v7CorsHeaders);
-  if (blocked) return blocked;
-  if (!isEnabled())
+  if (blocked) { ctx.errorCode = "geofenced"; return blocked; }
+  if (!isEnabled()) {
+    ctx.errorCode = "relayer_disabled";
     return NextResponse.json(
       { error: "relayer-disabled", code: "relayer_disabled" },
       { status: 503, headers: v7CorsHeaders },
     );
+  }
 
   // 1. Authenticate via HMAC API key. Returns a ready-to-send 401 on
   //    any auth failure (malformed / unknown / revoked / wrong secret).
   const authResult = await requireOrgAuth(req, v7CorsHeaders);
-  if (authResult instanceof NextResponse) return authResult;
+  if (authResult instanceof NextResponse) { ctx.errorCode = "unauthorized"; return authResult; }
   const { auth, finalize } = authResult;
+  ctx.orgId = auth.keyId;
 
+  const json = await parseJson(req, v7CorsHeaders);
+  if (!json.ok) { ctx.errorCode = "invalid_json"; await finalize(400); return json.response; }
   try {
     // 2. Parse the request body via the SAME zod schema that drives the
     //    OpenAPI spec.
-    const rawBody = await req.json();
-    const parsed = OrgClaimSubdomainReqSchema.safeParse(rawBody);
+    const parsed = OrgClaimSubdomainReqSchema.safeParse(json.value);
     if (!parsed.success) {
       const err = {
         error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
         code: "validation_failed" as const,
       };
+      ctx.errorCode = "validation_failed";
       await finalize(400);
       return NextResponse.json(err, { status: 400, headers: v7CorsHeaders });
     }
     const { chainId, claim } = parsed.data;
+    ctx.chainId = chainId;
 
     // 3. SCOPE CHECK: the request's parentNameHash must equal the API
     //    key's subdomainRootHash. Without this, a valid Coppel key could
@@ -96,6 +104,7 @@ export async function POST(req: NextRequest) {
         error: `parentNameHash does not match the API key's subdomain root (expected ${auth.subdomainRootHash})`,
         code: "scope_mismatch" as const,
       };
+      ctx.errorCode = "scope_mismatch";
       await finalize(400);
       return NextResponse.json(err, { status: 400, headers: v7CorsHeaders });
     }
@@ -106,13 +115,12 @@ export async function POST(req: NextRequest) {
       claim as unknown as OrgClaimSubdomainReq,
     );
 
+    ctx.txHash = txHash;
     await finalize(200);
     return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
   } catch (e: any) {
+    ctx.errorCode = "submit_failed";
     await finalize(500);
-    return NextResponse.json(
-      { error: e.message ?? "submit failed", code: "submit_failed" },
-      { status: 500, headers: v7CorsHeaders },
-    );
+    return errorResponse(500, "submit_failed", v7CorsHeaders, e);
   }
-}
+});

@@ -8,6 +8,8 @@ import {
   TezcatliCosignResponseSchema,
 } from "@/lib/openapi/schemas-v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
+import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 /**
  * Org-gated Tezcatli withdraw cosign. Mirrors cashin-cosign — caller-
@@ -43,25 +45,23 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withApiLog("/api/v7/tezcatli/cashout-cosign", async (req: NextRequest, ctx) => {
   const blocked = geofenceResponse(req, v7CorsHeaders);
-  if (blocked) return blocked;
-  // OPEN endpoint (retail + B2B). Per-call auth comes from the contract:
-  // every accepted op carries a P-256 sig the on-chain validator verifies.
-  const finalize = async (_n: number) => {};
+  if (blocked) { ctx.errorCode = "geofenced"; return blocked; }
+  const json = await parseJson(req, v7CorsHeaders);
+  if (!json.ok) { ctx.errorCode = "invalid_json"; return json.response; }
+  const parsed = TezcatliCashoutCosignReqSchema.safeParse(json.value);
+  if (!parsed.success) {
+    ctx.errorCode = "validation_failed";
+    return NextResponse.json(
+      { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), code: "validation_failed" },
+      { status: 400, headers: v7CorsHeaders },
+    );
+  }
   try {
-    const raw = await req.json();
-    const parsed = TezcatliCashoutCosignReqSchema.safeParse(raw);
-    if (!parsed.success) {
-      await finalize(400);
-      return NextResponse.json(
-        { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), code: "validation_failed" },
-        { status: 400, headers: v7CorsHeaders },
-      );
-    }
     const { chainId, token, shares, recipient } = parsed.data;
+    ctx.chainId = chainId;
     const { to, data } = buildWithdrawCalldata(chainId, token as Address, BigInt(shares), recipient as Address);
-    await finalize(200);
     return NextResponse.json(
       {
         chainId,
@@ -73,10 +73,7 @@ export async function POST(req: NextRequest) {
       { headers: v7CorsHeaders },
     );
   } catch (e: any) {
-    await finalize(500);
-    return NextResponse.json(
-      { error: e.message ?? "cosign failed" },
-      { status: 500, headers: v7CorsHeaders },
-    );
+    ctx.errorCode = "cosign_failed";
+    return errorResponse(500, "cosign_failed", v7CorsHeaders, e);
   }
-}
+});

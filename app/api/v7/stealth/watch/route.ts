@@ -6,6 +6,8 @@ import {
   StealthWatchReqSchema,
 } from "@/lib/openapi/schemas-v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
+import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 /**
  * Register a deterministic stealth address for inbound scanning. The client
@@ -47,29 +49,23 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function POST(req: NextRequest) {
-  // OPEN endpoint (retail + B2B). Per-call auth comes from the contract:
-  // every accepted op carries a P-256 sig the on-chain validator verifies.
-  const finalize = async (_n: number) => {};
-  try {
-    const rawBody = await req.json();
-    const parsed = StealthWatchReqSchema.safeParse(rawBody);
-    if (!parsed.success) {
-      await finalize(400);
-      return NextResponse.json(
-        { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), code: "validation_failed" },
-        { status: 400, headers: v7CorsHeaders },
-      );
-    }
-    const { pubkeyHash, address, index } = parsed.data;
-    await watchStealth(pubkeyHash, address, Number(index ?? 0));
-    await finalize(200);
-    return NextResponse.json({ ok: true }, { headers: v7CorsHeaders });
-  } catch (e: any) {
-    await finalize(500);
+export const POST = withApiLog("/api/v7/stealth/watch", async (req: NextRequest, ctx) => {
+  const json = await parseJson(req, v7CorsHeaders);
+  if (!json.ok) { ctx.errorCode = "invalid_json"; return json.response; }
+  const parsed = StealthWatchReqSchema.safeParse(json.value);
+  if (!parsed.success) {
+    ctx.errorCode = "validation_failed";
     return NextResponse.json(
-      { error: e.message ?? "watch failed" },
-      { status: 500, headers: v7CorsHeaders },
+      { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), code: "validation_failed" },
+      { status: 400, headers: v7CorsHeaders },
     );
   }
-}
+  try {
+    const { pubkeyHash, address, index } = parsed.data;
+    await watchStealth(pubkeyHash, address, Number(index ?? 0));
+    return NextResponse.json({ ok: true }, { headers: v7CorsHeaders });
+  } catch (e: any) {
+    ctx.errorCode = "watch_failed";
+    return errorResponse(500, "watch_failed", v7CorsHeaders, e);
+  }
+});

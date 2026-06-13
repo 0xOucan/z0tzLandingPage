@@ -9,6 +9,16 @@
  * BigInt-bearing fields are sent as base-10 strings (browsers can't
  * JSON.stringify a BigInt). Address fields are 0x-prefixed lower-case
  * hex (viem Address). Hex bytes are 0x-prefixed.
+ *
+ * Auth headers (referenced by the security schemes in registry.ts):
+ *   /api/v7/org/*  ->  X-Z0tz-Org-Auth: keyId=<8-hex>;ts=<unix-ms>;sig=<64-hex>
+ *                      sig = HMAC_SHA256(plaintext_key,
+ *                        `${ts}|${METHOD}|${path}|${sha256Hex(body)}`)
+ *                      ±5 min replay window. `body` is the EXACT bytes the
+ *                      client sends: stringify the payload once, sign that
+ *                      string, then POST it — the server sha256s the raw
+ *                      request body, not the parsed JSON.
+ *   user-tier      ->  X-Z0tz-Sig (P-256 over body) + X-Z0tz-PubX / -PubY.
  */
 import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
@@ -137,6 +147,43 @@ export const SpendReqSchema = z
   .object({ chainId: ChainIdSchema, op: SpendOpSchema })
   .openapi("SpendRequest");
 
+// ── /api/v7/multispend ──────────────────────────────────────────────────
+
+export const MultispendRecipientSchema = z
+  .object({
+    mode: z.number().int().min(0).max(3),
+    encAmount: InEuint64Schema,
+    plainAmount: BigIntStr,
+    destAccount: AddressSchema,
+    destAddress: AddressSchema,
+    destChainId: z.number().int().min(0).max(0xffffffff),
+  })
+  .openapi("MultispendRecipient");
+
+export const MultispendOpSchema = z
+  .object({
+    account: AddressSchema,
+    token: AddressSchema,
+    totalPlainAmount: BigIntStr,
+    senderExecutor: AddressSchema,
+    nonce: BigIntStr,
+    deadline: BigIntStr,
+    pkX: BigIntStr,
+    pkY: BigIntStr,
+    sigR: BigIntStr,
+    sigS: BigIntStr,
+    // Hard cap of 50 rows on the API boundary (defense-in-depth for H-1b);
+    // the route also enforces 50 server-side. Contract documents "up to 30
+    // rows" but the API accepts up to 50 to avoid a foot-gun mismatch with
+    // future contract revisions.
+    recipients: z.array(MultispendRecipientSchema).min(1).max(50),
+  })
+  .openapi("MultispendOp");
+
+export const MultispendReqSchema = z
+  .object({ chainId: ChainIdSchema, op: MultispendOpSchema })
+  .openapi("MultispendRequest");
+
 // ── /api/v7/names ───────────────────────────────────────────────────────
 
 export const NameClaimReqSchema = z
@@ -159,6 +206,24 @@ export const NameClaimReqSchema = z
       .openapi("SignedNameClaim"),
   })
   .openapi("NameClaimRequest");
+
+// ── /api/v7/resolve/:nameHash ───────────────────────────────────────────
+//
+// V7-FINAL #11: off-chain name resolution. The on-chain contract returns
+// the address(0x1) sentinel for non-LEDGER_ROLE callers; the relayer caches
+// (nameHash -> resolvedAccount) at submit time + a one-shot backfill, and
+// exposes it here gated by a P-256 passkey signature so casual scrapers
+// cannot bulk-enumerate the namespace.
+
+export const ResolveResSchema = z
+  .object({
+    nameHash: Bytes32Schema,
+    resolvedAccount: AddressSchema,
+    chainId: ChainIdSchema,
+    active: z.boolean(),
+    claimedAt: z.number().int().openapi({ description: "ms since epoch (first observation by the relayer)" }),
+  })
+  .openapi("ResolveResponse");
 
 // ── /api/v7/recover ─────────────────────────────────────────────────────
 
@@ -196,6 +261,17 @@ export const EncryptedArtifactSchema = z
     kdf: z.string().optional(),
   })
   .openapi("EncryptedArtifact");
+
+// ── /api/v7/admin/issue-org-key ─────────────────────────────────────────
+
+export const IssueOrgKeyReqSchema = z
+  .object({
+    orgName: z.string().min(1).max(128),
+    subdomainRoot: z.string().min(1).max(64),
+    tier: z.enum(["sandbox", "verified"]).optional(),
+    contactEmail: z.string().email().max(256).optional().nullable(),
+  })
+  .openapi("IssueOrgKeyRequest");
 
 // ── /api/v7/stealth/{watch,inbound} ────────────────────────────────────
 
@@ -371,6 +447,46 @@ export const OrgInitiateRecoveryReqSchema = z
       .openapi("OrgInitiateRecoveryClaim"),
   })
   .openapi("OrgInitiateRecoveryRequest");
+
+// ── /api/v7/bridge-relay ────────────────────────────────────────────────
+//
+// V7-FINAL #1/#2: cross-chain delivery is now a single attested channel.
+// The ledger unshields directly into a user-supplied `srcStealth` via
+// `vault.confidentialTransferOut`; the stealth then drives the cctp-clone
+// `depositForBurn` off-chain. This endpoint observes ONLY the resulting
+// `ZUSDCMessageTransmitter.MessageSent(bytes)` event on the source tx —
+// the old `Z0tzInternalBridge.InternalMessageSent` channel was deleted.
+//
+// The relayer signs the cctp-clone attestation digest
+//   keccak256(abi.encode("ZUSDCMessageTransmitterReceive",
+//                        destChainId, destTransmitter, message))
+// (EIP-191) and submits `receiveMessage(message, signature)` on the dest
+// chain's `ZUSDCMessageTransmitter`.
+//
+// Idempotent on `(srcChainId, srcTxHash)` — see `bridge_replays` table.
+
+export const BridgeRelayReqSchema = z
+  .object({
+    srcChainId: ChainIdSchema,
+    dstChainId: ChainIdSchema,
+    srcTxHash: Bytes32Schema.openapi({
+      description: "Source tx that emitted ZUSDCMessageTransmitter.MessageSent",
+    }),
+  })
+  .openapi("BridgeRelayRequest");
+
+export const BridgeRelayResponseSchema = z
+  .object({
+    dstTxHash: Bytes32Schema.openapi({
+      description:
+        "Dest-chain `receiveMessage` tx. On a replayed request, returns the prior hash.",
+    }),
+    status: z.enum(["delivered", "already-used"]).openapi({
+      description:
+        "`delivered` = the dest tx mined this call; `already-used` = the dest transmitter's nonce was already consumed (idempotent replay).",
+    }),
+  })
+  .openapi("BridgeRelayResponse");
 
 // ── /api/v7/tezcatli/* — yield-vault read + cosign surface ──────────────
 

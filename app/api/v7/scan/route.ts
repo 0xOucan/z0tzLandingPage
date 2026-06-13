@@ -17,6 +17,8 @@ import { indexV7Chain } from "@/lib/indexer/indexer-v7";
 import { v7Deployment } from "@/lib/relayer/v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
 import { ErrorResponseSchema } from "@/lib/openapi/schemas-v7";
+import { errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 const ScanResponseSchema = z
   .object({
@@ -54,14 +56,16 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: v7CorsHeaders });
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withApiLog("/api/v7/scan", async (req: NextRequest, ctx) => {
   try {
     const url = new URL(req.url);
     const chainIdStr = url.searchParams.get("chainId");
     if (!chainIdStr) {
+      ctx.errorCode = "validation_failed";
       return NextResponse.json({ error: "missing chainId" }, { status: 400, headers: v7CorsHeaders });
     }
     const chainId = Number(chainIdStr);
+    ctx.chainId = chainId;
     const maxMs = Number(url.searchParams.get("maxMs") ?? "8000");
     const d = v7Deployment(chainId);
     const t0 = Date.now();
@@ -71,9 +75,7 @@ export async function POST(req: NextRequest) {
       { headers: v7CorsHeaders },
     );
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e.message ?? "scan failed" },
-      { status: 500, headers: v7CorsHeaders },
-    );
+    ctx.errorCode = "scan_failed";
+    return errorResponse(500, "scan_failed", v7CorsHeaders, e);
   }
-}
+});

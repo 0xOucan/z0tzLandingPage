@@ -16,6 +16,8 @@ import { requireOrgAuth } from "@/lib/relayer/org-auth";
 import { getOrgUsage } from "@/lib/indexer/turso-v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
 import { ErrorResponseSchema } from "@/lib/openapi/schemas-v7";
+import { errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 const OrgUsageResponseSchema = z
   .object({
@@ -62,10 +64,11 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: v7CorsHeaders });
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withApiLog("/api/v7/org/usage", async (req: NextRequest, ctx) => {
   const authResult = await requireOrgAuth(req, v7CorsHeaders);
-  if (authResult instanceof NextResponse) return authResult;
+  if (authResult instanceof NextResponse) { ctx.errorCode = "unauthorized"; return authResult; }
   const { auth, finalize } = authResult;
+  ctx.orgId = auth.keyId;
   try {
     const url = new URL(req.url);
     const rawWindow = url.searchParams.get("windowMs");
@@ -85,10 +88,8 @@ export async function GET(req: NextRequest) {
       { headers: v7CorsHeaders },
     );
   } catch (e: any) {
+    ctx.errorCode = "usage_failed";
     await finalize(500);
-    return NextResponse.json(
-      { error: e.message ?? "usage lookup failed" },
-      { status: 500, headers: v7CorsHeaders },
-    );
+    return errorResponse(500, "usage_failed", v7CorsHeaders, e);
   }
-}
+});

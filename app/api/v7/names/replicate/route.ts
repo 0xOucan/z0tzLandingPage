@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { isEnabled, submitNameClaim, type NameClaimReq } from "@/lib/relayer/v7";
 import { v7CorsHeaders } from "@/lib/openapi/registry";
+import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 // V7-final patch list item #7: names cross-chain auto-replication.
 //
@@ -28,15 +30,19 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withApiLog("/api/v7/names/replicate", async (req: NextRequest, ctx) => {
   const blocked = geofenceResponse(req, v7CorsHeaders);
-  if (blocked) return blocked;
+  if (blocked) { ctx.errorCode = "geofenced"; return blocked; }
   if (!isEnabled()) {
-    return NextResponse.json({ error: "relayer-disabled" }, { status: 503, headers: v7CorsHeaders });
+    ctx.errorCode = "relayer_disabled";
+    return errorResponse(503, "relayer_disabled", v7CorsHeaders);
   }
+  const json = await parseJson(req, v7CorsHeaders);
+  if (!json.ok) { ctx.errorCode = "invalid_json"; return json.response; }
   try {
-    const body = await req.json();
+    const body = json.value;
     if (!body || !Array.isArray(body.claims)) {
+      ctx.errorCode = "validation_failed";
       return NextResponse.json(
         { error: "expected { claims: [{ chainId, claim }, ...] }" },
         { status: 400, headers: v7CorsHeaders },
@@ -44,6 +50,7 @@ export async function POST(req: NextRequest) {
     }
     const claims = body.claims as Array<{ chainId: number; claim: any }>;
     if (claims.length === 0 || claims.length > MAX_CLAIMS) {
+      ctx.errorCode = "validation_failed";
       return NextResponse.json(
         { error: `claims.length must be in [1, ${MAX_CLAIMS}]` },
         { status: 400, headers: v7CorsHeaders },
@@ -53,9 +60,11 @@ export async function POST(req: NextRequest) {
     const seen = new Set<number>();
     for (const c of claims) {
       if (!c || typeof c.chainId !== "number" || !c.claim) {
+        ctx.errorCode = "validation_failed";
         return NextResponse.json({ error: "each claim needs { chainId, claim }" }, { status: 400, headers: v7CorsHeaders });
       }
       if (seen.has(c.chainId)) {
+        ctx.errorCode = "validation_failed";
         return NextResponse.json({ error: `chainId ${c.chainId} appears more than once` }, { status: 400, headers: v7CorsHeaders });
       }
       seen.add(c.chainId);
@@ -76,11 +85,13 @@ export async function POST(req: NextRequest) {
 
     const okCount = results.filter((r) => r.status === "ok").length;
     const httpStatus = okCount === 0 ? 500 : 200; // any success → 200 with per-chain status
+    if (okCount === 0) ctx.errorCode = "all_failed";
     return NextResponse.json(
       { totalClaims: claims.length, succeeded: okCount, results },
       { status: httpStatus, headers: v7CorsHeaders },
     );
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "replicate failed" }, { status: 500, headers: v7CorsHeaders });
+    ctx.errorCode = "replicate_failed";
+    return errorResponse(500, "replicate_failed", v7CorsHeaders, e);
   }
-}
+});

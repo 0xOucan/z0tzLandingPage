@@ -30,10 +30,15 @@ export const v7Registry = new OpenAPIRegistry();
 v7Registry.registerComponent("securitySchemes", "orgApiKey", {
   type: "apiKey",
   in: "header",
-  name: "X-Z0tz-Org-Key",
+  name: "X-Z0tz-Org-Auth",
   description:
-    "HMAC API key issued by Z0tz ops to an org admin during provisioning. " +
-    "Scopes the call to that org's subdomain root. Required on /api/v7/org/*.",
+    "M-7 HMAC-over-body org auth. Header shape: " +
+    "`X-Z0tz-Org-Auth: keyId=<8-hex>;ts=<unix-ms>;sig=<64-hex>` where " +
+    "`sig = HMAC_SHA256(plaintext_key, `${ts}|${METHOD}|${path}|${sha256Hex(body)}`)`. " +
+    "The plaintext key is the value issued ONCE at org provisioning. `ts` " +
+    "must be within ±5 minutes of server clock (replay window). Binding " +
+    "the body into the signature stops the swap-the-body-in-flight attack " +
+    "the previous static-key scheme allowed. Required on /api/v7/org/*.",
 });
 
 v7Registry.registerComponent("securitySchemes", "passkey", {
@@ -86,5 +91,5 @@ export const v7CorsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, X-Z0tz-PubX, X-Z0tz-PubY, X-Z0tz-Sig, X-Z0tz-Org-Key",
+    "Content-Type, X-Z0tz-PubX, X-Z0tz-PubY, X-Z0tz-Sig, X-Z0tz-Org-Key, X-Z0tz-Org-Auth",
 } as const;

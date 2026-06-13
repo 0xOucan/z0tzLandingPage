@@ -6,6 +6,8 @@ import {
   StealthInboundResponseSchema,
 } from "@/lib/openapi/schemas-v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
+import { errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 /**
  * List inbound funds across all chains for a user's watched stealth addresses.
@@ -43,17 +45,17 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withApiLog("/api/v7/stealth/inbound", async (req: NextRequest, ctx) => {
   try {
     const pubkeyHash = new URL(req.url).searchParams.get("pubkeyHash");
-    if (!pubkeyHash)
+    if (!pubkeyHash) {
+      ctx.errorCode = "validation_failed";
       return NextResponse.json({ error: "missing pubkeyHash" }, { status: 400, headers: v7CorsHeaders });
+    }
     const inbound = await getInboundForPubkey(pubkeyHash);
     return NextResponse.json({ inbound }, { headers: v7CorsHeaders });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e.message ?? "fetch failed" },
-      { status: 500, headers: v7CorsHeaders },
-    );
+    ctx.errorCode = "fetch_failed";
+    return errorResponse(500, "fetch_failed", v7CorsHeaders, e);
   }
-}
+});

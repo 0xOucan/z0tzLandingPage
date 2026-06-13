@@ -9,6 +9,8 @@ import {
   TxHashResponseSchema,
 } from "@/lib/openapi/schemas-v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
+import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
+import { withApiLog } from "@/lib/relayer/request-log";
 
 // Permissionless recovery: the proof itself is the authorization (the relayer
 // just pays gas). `action` dispatches between initiate and execute legs.
@@ -52,19 +54,19 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: v7CorsHeaders });
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withApiLog("/api/v7/recover", async (req: NextRequest, ctx) => {
   const blocked = geofenceResponse(req, v7CorsHeaders);
-  if (blocked) return blocked;
-  if (!isEnabled())
-    return NextResponse.json({ error: "relayer-disabled" }, { status: 503, headers: v7CorsHeaders });
-  // OPEN endpoint (retail + B2B). Per-call auth comes from the contract:
-  // every accepted op carries a P-256 sig the on-chain validator verifies.
-  const finalize = async (_n: number) => {};
+  if (blocked) { ctx.errorCode = "geofenced"; return blocked; }
+  if (!isEnabled()) {
+    ctx.errorCode = "relayer_disabled";
+    return errorResponse(503, "relayer_disabled", v7CorsHeaders);
+  }
+  const json = await parseJson(req, v7CorsHeaders);
+  if (!json.ok) { ctx.errorCode = "invalid_json"; return json.response; }
   try {
-    const rawBody = await req.json();
-    const parsed = RecoverReqSchema.safeParse(rawBody);
+    const parsed = RecoverReqSchema.safeParse(json.value);
     if (!parsed.success) {
-      await finalize(400);
+      ctx.errorCode = "validation_failed";
       return NextResponse.json(
         { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), code: "validation_failed" },
         { status: 400, headers: v7CorsHeaders },
@@ -73,6 +75,7 @@ export async function POST(req: NextRequest) {
     const data = parsed.data;
     if (data.action === "initiate") {
       const { chainId, account, methodIndex, newOwnerX, newOwnerY, proof } = data;
+      ctx.chainId = chainId;
       const { txHash } = await submitRecoverInitiate(chainId, {
         account: account as `0x${string}`,
         methodIndex,
@@ -80,21 +83,19 @@ export async function POST(req: NextRequest) {
         newOwnerY,
         proof: proof as `0x${string}`,
       });
-      await finalize(200);
+      ctx.txHash = txHash;
       return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
     }
     if (data.action === "execute") {
+      ctx.chainId = data.chainId;
       const { txHash } = await submitRecoverExecute(data.chainId, { recoveryId: data.recoveryId });
-      await finalize(200);
+      ctx.txHash = txHash;
       return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
     }
-    await finalize(400);
+    ctx.errorCode = "unknown_action";
     return NextResponse.json({ error: "unknown action" }, { status: 400, headers: v7CorsHeaders });
   } catch (e: any) {
-    await finalize(500);
-    return NextResponse.json(
-      { error: e.message ?? "submit failed" },
-      { status: 500, headers: v7CorsHeaders },
-    );
+    ctx.errorCode = "submit_failed";
+    return errorResponse(500, "submit_failed", v7CorsHeaders, e);
   }
-}
+});
