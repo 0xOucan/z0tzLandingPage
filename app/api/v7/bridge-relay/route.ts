@@ -57,11 +57,15 @@ const CHAINS: Record<number, any> = {
   31337: hardhat,
 };
 
-// Z0tz CCTP-clone domain → EVM chain id (matches deploy.ts wiring).
+// Z0tz CCTP-clone INTERNAL domain → EVM chain id. These are the z0tz
+// internal domains the cctp-clone messenger burns with (NOT Circle's CCTP
+// domains). Confirmed in deployments/*.json `"domain"` + scripts/link-bridges.ts
+// (arb=1, base=0, eth=2). Using Circle's {3,6,0} here would reject arb/eth
+// deliveries and mis-map base.
 const DOMAIN_TO_CHAIN_ID: Record<number, number> = {
-  3: 421614,    // arb-sepolia
-  6: 84532,     // base-sepolia
-  0: 11155111,  // eth-sepolia
+  1: 421614,    // arb-sepolia (z0tz internal domain 1)
+  0: 84532,     // base-sepolia (z0tz internal domain 0)
+  2: 11155111,  // eth-sepolia (z0tz internal domain 2)
 };
 
 const MessageSentEvent = parseAbiItem("event MessageSent(bytes message)");
