@@ -46,6 +46,7 @@ export interface V7Deployment {
   //   rather than redefining locally (see F-6 comment elsewhere in this
   //   file). audit_alerts_v7 kind='bridge.PendingMintRecorded' surfaces the
   //   on-chain burnNonce for cross-checking.
+  feeAccounting?: Address; // Z0tzFeeAccountingV7 — emits FeeRecorded (indexer source)
   internalBridge?: Address; zusdcTransmitter?: Address; zusdcMessenger?: Address; mockYieldStrategy?: Address; timedVault?: Address;
   emergencyKeyMethod?: Address; guardianQuorumMethod?: Address;
   policyFactory?: Address;

@@ -36,17 +36,20 @@ const EV = {
   // ── Audit-fix events (post-audit V7 contracts) ───────────────────────
   // Ledger: multisend rows that the contract skipped (e.g. budget-cap hit,
   // mismatched destination). Surfaced for ops / user-facing failure UX.
-  ledgerMultisendSkipped: parseAbiItem("event MultisendRowSkipped(uint256 indexed rowIndex, string reason)") as AbiEvent,
+  ledgerMultisendSkipped: parseAbiItem("event MultisendRowSkipped(uint256 indexed rowIndex, bytes reason)") as AbiEvent,
   // Sweeper V7: PrivateSweep gained a trailing `bool feeSettled` so ops can
   // distinguish "fee paid synchronously" from "fee deferred" sweeps. Plus a
   // dedicated FeeTransferFailed alert event when the fee leg reverts.
-  sweeperPrivateSweep: parseAbiItem("event PrivateSweep(address indexed stealthAddress, address indexed token, address indexed account, uint256 amount, uint256 fee, bool feeSettled)") as AbiEvent,
-  sweeperFeeTransferFailed: parseAbiItem("event FeeTransferFailed(address indexed token, uint256 amount, string reason)") as AbiEvent,
-  // Internal bridge: expiry + opaque-mint + unknown-source alerts. burnNonce
-  // matches the new uint64 binding in InternalMessage / BurnMessage.
-  bridgeIntentExpired: parseAbiItem("event IntentExpired(bytes32 indexed intentId)") as AbiEvent,
+  // V7-FINAL: matches Z0tzSweeperV7.sol — (stealth, account, token, grossAmount,
+  // fee, uint64 netUnits, feeSettled). The prior shape (token before account,
+  // no netUnits, `amount`) had the wrong selector → every sweep silently
+  // dropped. Handler reads a.grossAmount.
+  sweeperPrivateSweep: parseAbiItem("event PrivateSweep(address indexed stealthAddress, address indexed account, address indexed token, uint256 grossAmount, uint256 fee, uint64 netUnits, bool feeSettled)") as AbiEvent,
+  sweeperFeeTransferFailed: parseAbiItem("event FeeTransferFailed(address indexed token, uint256 amount, bytes reason)") as AbiEvent,
+  // Internal bridge: opaque-mint + unknown-source alerts. burnNonce matches
+  // the uint64 binding in InternalMessage / BurnMessage.
   bridgePendingMintRecorded: parseAbiItem("event PendingMintRecorded(uint64 indexed burnNonce, uint256 amount)") as AbiEvent,
-  bridgeUnknownRemote: parseAbiItem("event UnknownRemoteBridge(uint32 indexed sourceDomain, uint64 nonce)") as AbiEvent,
+  bridgeUnknownRemote: parseAbiItem("event UnknownRemoteBridge(uint32 indexed sourceDomain, uint64 indexed nonce)") as AbiEvent,
   // Yield strategy + timed vault: capped-mint signals (requested vs minted).
   yieldCapped: parseAbiItem("event YieldCapped(address indexed account, uint64 requested, uint64 minted)") as AbiEvent,
   timedMintCapHit: parseAbiItem("event MintCapHit(uint256 indexed positionId, uint64 requested, uint64 minted)") as AbiEvent,
@@ -105,7 +108,10 @@ function sources(d: V7Deployment): Source[] {
     // Fee accounting (FeeRecorded) — emitted by the ledger when ops settle
     // protocol fee + gas reimbursement. opKind is a bytes32 tag (e.g.
     // keccak256("CASHOUT")). The break-even dashboard reads from here.
-    { key: "ledger.FeeRecorded", address: d.ledger, event: EV.feeRecorded, handle: async (a, m, chainId) => {
+    // V7-FINAL: FeeRecorded is emitted by Z0tzFeeAccountingV7, NOT the ledger.
+    // Pointing at d.ledger never matched. Fall back to ledger only if the
+    // deployment blob predates the feeAccounting field.
+    { key: "ledger.FeeRecorded", address: (d.feeAccounting ?? d.ledger) as Address, event: EV.feeRecorded, handle: async (a, m, chainId) => {
       await c.execute({ sql: `INSERT OR IGNORE INTO fee_events_v7 (chain_id, account, op_kind, base_amount, protocol_fee, gas_reimbursed, block, tx_hash, log_index, ts) VALUES (?,?,?,?,?,?,?,?,?,?)`,
         args: [chainId, String(a.account).toLowerCase(), String(a.opKind), String(a.baseAmount), String(a.protocolFee), String(a.gasReimbursed), m.block, m.txHash, m.logIndex, m.ts] }); } },
     // ── Tezcatli yield vault — only registered when the chain has it. ──
@@ -138,12 +144,10 @@ function sources(d: V7Deployment): Source[] {
     // whether the fee leg completed synchronously.
     { key: "sweeper.PrivateSweep", address: d.sweeper, event: EV.sweeperPrivateSweep, handle: async (a, m, chainId) => {
       await c.execute({ sql: `INSERT OR IGNORE INTO sweeper_events_v7 (chain_id, stealth_address, token, account, amount, fee, fee_settled, block, tx_hash, log_index, ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        args: [chainId, String(a.stealthAddress).toLowerCase(), String(a.token).toLowerCase(), String(a.account).toLowerCase(), String(a.amount), String(a.fee), a.feeSettled ? 1 : 0, m.block, m.txHash, m.logIndex, m.ts] }); } },
+        args: [chainId, String(a.stealthAddress).toLowerCase(), String(a.token).toLowerCase(), String(a.account).toLowerCase(), String(a.grossAmount), String(a.fee), a.feeSettled ? 1 : 0, m.block, m.txHash, m.logIndex, m.ts] }); } },
     { key: "sweeper.FeeTransferFailed", address: d.sweeper, event: EV.sweeperFeeTransferFailed, handle: async (a, m, chainId) =>
       auditAlert(c, chainId, "sweeper.FeeTransferFailed", d.sweeper, { token: String(a.token).toLowerCase(), amount: String(a.amount), reason: String(a.reason) }, m) },
     // Internal bridge — only registered when the deployment carries one.
-    { key: "bridge.IntentExpired", address: d.internalBridge as Address, event: EV.bridgeIntentExpired, handle: async (a, m, chainId) =>
-      auditAlert(c, chainId, "bridge.IntentExpired", d.internalBridge as Address, { intentId: String(a.intentId) }, m) },
     { key: "bridge.PendingMintRecorded", address: d.internalBridge as Address, event: EV.bridgePendingMintRecorded, handle: async (a, m, chainId) =>
       auditAlert(c, chainId, "bridge.PendingMintRecorded", d.internalBridge as Address, { burnNonce: String(a.burnNonce), amount: String(a.amount) }, m) },
     { key: "bridge.UnknownRemoteBridge", address: d.internalBridge as Address, event: EV.bridgeUnknownRemote, handle: async (a, m, chainId) =>
