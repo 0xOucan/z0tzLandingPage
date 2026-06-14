@@ -211,12 +211,30 @@ export async function backfillFromReceipt(opts: {
   parentHint?: Hex;
 }): Promise<void> {
   try {
+    const registryLogs = opts.receipt.logs.filter(
+      (l) => l.address.toLowerCase() === opts.registryAddress.toLowerCase(),
+    );
     const logs = parseEventLogs({
       abi: namesEventsAbi,
-      logs: opts.receipt.logs.filter(
-        (l) => l.address.toLowerCase() === opts.registryAddress.toLowerCase(),
-      ),
+      logs: registryLogs,
     });
+    // Visibility: a name-claim tx that produces zero parseable registry
+    // events almost always means a config drift — either the configured
+    // `registryAddress` (from DEPLOYMENT_V7_<chainId>.nameRegistry) does
+    // not match the contract the tx actually hit, or the event ABI drifted
+    // from the deployed Z0tzNameRegistry. Surface it in Vercel logs instead
+    // of silently leaving the cache empty (root cause of the bobby/alice
+    // 404s: a stale registry address filtered out every matching log).
+    if (logs.length === 0) {
+      console.warn(
+        `[name-cache] backfillFromReceipt parsed ZERO events for tx ` +
+          `${opts.receipt.transactionHash} on chain ${opts.chainId}: ` +
+          `${opts.receipt.logs.length} total logs, ` +
+          `${registryLogs.length} from configured registry ` +
+          `${opts.registryAddress}. Check DEPLOYMENT_V7_${opts.chainId}.nameRegistry ` +
+          `matches the deployed contract and the event ABI is current.`,
+      );
+    }
     const txHash = opts.receipt.transactionHash as Hex;
     for (const log of logs) {
       const a = (log as any).args ?? {};
@@ -280,5 +298,9 @@ export async function backfillFromReceipt(opts: {
         }
       }
     }
-  } catch { /* swallow — cache is best-effort */ }
+  } catch (e: any) {
+    // Best-effort: never throw on the submit path. But DO log — a silently
+    // swallowed parse/upsert failure is exactly how the cache went stale.
+    console.warn(`[name-cache] backfillFromReceipt failed for tx ${opts.receipt?.transactionHash} on chain ${opts.chainId}: ${e?.message ?? e}`);
+  }
 }
