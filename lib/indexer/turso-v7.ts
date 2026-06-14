@@ -20,6 +20,57 @@
  * unset).
  */
 import { createClient, type Client } from "@libsql/client";
+import { keccak256, concat, toBytes, stringToBytes, type Hex } from "viem";
+
+/**
+ * ── Off-chain de-anonymization fix: salted pubkey commitment ──────────────
+ *
+ * The relayer learns `stealth_address → pubkey_hash` at `POST /api/v7/stealth/
+ * watch` time — BEFORE any on-chain tx exists. A raw dump of `stealth_watch_v7`
+ * would therefore map a user's stealth receive addresses back to their pubkey
+ * with zero on-chain footprint (unlike sweeper/credit events, which only carry
+ * data the `PrivateSweep` event already makes public on-chain).
+ *
+ * Fix: store a SALTED COMMITMENT `keccak256(pubkeyHash ‖ SERVER_SALT)` in place
+ * of the raw pubkeyHash. A user who can supply their pubkeyHash (already the
+ * read capability for watch / inbound) recomputes the identical commitment, so
+ * matching a *known* user still works; a DB read alone cannot reverse
+ * stealth → user without the server secret.
+ *
+ * OPERATOR REQUIREMENT: production MUST set `SERVER_SALT` (or
+ * `STEALTH_WATCH_SALT`). It is a long random secret. ROTATING IT ORPHANS ALL
+ * EXISTING COMMITMENTS — every previously-watched stealth becomes
+ * unmatchable (clients must re-register). Treat it as a durable, backed-up
+ * secret, not something to churn. If unset we fall back to a build-time
+ * constant + emit a loud warning so dev doesn't break — NEVER ship to prod
+ * without it (the fallback is a publicly-known constant ⇒ zero protection).
+ */
+const STEALTH_WATCH_SALT_FALLBACK = "z0tz-v7-dev-stealth-salt-DO-NOT-USE-IN-PROD";
+
+let _warnedSalt = false;
+function serverSalt(): string {
+  const s = (process.env.SERVER_SALT ?? process.env.STEALTH_WATCH_SALT)?.trim();
+  if (s) return s;
+  if (!_warnedSalt) {
+    _warnedSalt = true;
+    console.warn(
+      "[turso-v7] SERVER_SALT/STEALTH_WATCH_SALT is UNSET — falling back to a " +
+        "PUBLIC build-time constant. Stealth→pubkey commitments offer NO privacy " +
+        "in this mode. Set SERVER_SALT before deploying to production.",
+    );
+  }
+  return STEALTH_WATCH_SALT_FALLBACK;
+}
+
+/**
+ * Salted commitment over a pubkeyHash: `keccak256(pubkeyHash_bytes ‖ salt_bytes)`.
+ * Deterministic for a fixed SERVER_SALT, so the relayer can recompute it to
+ * match a known user, but irreversible from a DB dump alone.
+ */
+export function pubkeyCommitment(pubkeyHash: string): string {
+  // pubkeyHash is a 0x-hex value; the salt is an arbitrary UTF-8 secret.
+  return keccak256(concat([toBytes(pubkeyHash as Hex), stringToBytes(serverSalt())]));
+}
 
 const url = (process.env.TURSO_V7_DATABASE_URL ?? process.env.TURSO_DATABASE_URL)?.trim();
 const authToken = (process.env.TURSO_V7_AUTH_TOKEN ?? process.env.TURSO_AUTH_TOKEN)?.trim();
@@ -169,9 +220,15 @@ export async function ensureSchema(): Promise<void> {
       // Deterministic-stealth watchlist: the public stealth addresses to scan
       // for inbound funds. Populated by the client (it derives the address and
       // registers the PUBLIC address only — no key). Scanned on EVERY chain.
+      // NOTE: the identity column stores a SALTED COMMITMENT
+      // keccak256(pubkeyHash ‖ SERVER_SALT), NOT the raw pubkeyHash — see
+      // pubkeyCommitment() above. This is the ONE off-chain leak the watch
+      // flow would otherwise create (stealth→pubkey before any tx). The
+      // stealth_address + idx stay plaintext: the stealth is the public
+      // receive address; only the LINK to identity is protected.
       `CREATE TABLE IF NOT EXISTS stealth_watch_v7 (
         stealth_address TEXT PRIMARY KEY,
-        pubkey_hash TEXT NOT NULL,
+        pubkey_commitment TEXT NOT NULL,
         idx INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
       )`,
@@ -315,6 +372,13 @@ export async function ensureSchema(): Promise<void> {
   try {
     await c.execute(`ALTER TABLE org_keys ADD COLUMN hmac_key TEXT`);
   } catch { /* column already exists — safe to ignore */ }
+  // Privacy migration (mirror of db/migrations/0006_pubkey_commitment.sql):
+  // rename the legacy raw-pubkey column to pubkey_commitment on deployments
+  // whose stealth_watch_v7 predates the salted-commitment scheme. Idempotent —
+  // fails (and is swallowed) once the column is already named/created.
+  try {
+    await c.execute(`ALTER TABLE stealth_watch_v7 RENAME COLUMN pubkey_hash TO pubkey_commitment`);
+  } catch { /* already renamed or fresh table — safe to ignore */ }
   _schemaReady = true;
 }
 
@@ -322,16 +386,22 @@ export async function ensureSchema(): Promise<void> {
 
 export async function watchStealth(pubkeyHash: string, stealthAddress: string, idx = 0): Promise<void> {
   await ensureSchema();
+  // Store the SALTED COMMITMENT, never the raw pubkeyHash — a DB dump must not
+  // reverse stealth → user. The caller already supplied the pubkeyHash (the
+  // read/write capability), so the user can recompute the same commitment.
   await client().execute({
-    sql: `INSERT OR IGNORE INTO stealth_watch_v7 (stealth_address, pubkey_hash, idx, created_at) VALUES (?,?,?,?)`,
-    args: [stealthAddress.toLowerCase(), pubkeyHash, idx, Date.now()],
+    sql: `INSERT OR IGNORE INTO stealth_watch_v7 (stealth_address, pubkey_commitment, idx, created_at) VALUES (?,?,?,?)`,
+    args: [stealthAddress.toLowerCase(), pubkeyCommitment(pubkeyHash), idx, Date.now()],
   });
 }
 
-export async function getWatchlist(): Promise<{ stealthAddress: string; pubkeyHash: string; idx: number }[]> {
+/** Watchlist for the indexer. `pubkeyCommitment` is the salted identity
+ *  commitment, NOT a reversible pubkeyHash — the indexer only needs the
+ *  stealth addresses to scan; it never needs the underlying identity. */
+export async function getWatchlist(): Promise<{ stealthAddress: string; pubkeyCommitment: string; idx: number }[]> {
   await ensureSchema();
-  const r = await client().execute(`SELECT stealth_address, pubkey_hash, idx FROM stealth_watch_v7`);
-  return r.rows.map((row) => ({ stealthAddress: row.stealth_address as string, pubkeyHash: row.pubkey_hash as string, idx: Number(row.idx) }));
+  const r = await client().execute(`SELECT stealth_address, pubkey_commitment, idx FROM stealth_watch_v7`);
+  return r.rows.map((row) => ({ stealthAddress: row.stealth_address as string, pubkeyCommitment: row.pubkey_commitment as string, idx: Number(row.idx) }));
 }
 
 export async function recordInbound(row: {
@@ -348,10 +418,12 @@ export async function recordInbound(row: {
 /** All inbound funds for a user's stealth addresses (unswept first). */
 export async function getInboundForPubkey(pubkeyHash: string): Promise<any[]> {
   await ensureSchema();
+  // Match by the salted commitment recomputed from the supplied pubkeyHash — a
+  // user proving their pubkey still gets their rows; a DB read alone can't.
   const r = await client().execute({
     sql: `SELECT i.* FROM stealth_inbound_v7 i JOIN stealth_watch_v7 w ON i.stealth_address = w.stealth_address
-          WHERE w.pubkey_hash = ? ORDER BY i.swept ASC, i.block DESC`,
-    args: [pubkeyHash],
+          WHERE w.pubkey_commitment = ? ORDER BY i.swept ASC, i.block DESC`,
+    args: [pubkeyCommitment(pubkeyHash)],
   });
   return r.rows;
 }
