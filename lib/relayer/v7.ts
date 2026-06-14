@@ -46,7 +46,9 @@ export interface V7Deployment {
   //   rather than redefining locally (see F-6 comment elsewhere in this
   //   file). audit_alerts_v7 kind='bridge.PendingMintRecorded' surfaces the
   //   on-chain burnNonce for cross-checking.
-  feeAccounting?: Address; // Z0tzFeeAccountingV7 — emits FeeRecorded (indexer source)
+  feeAccounting?: Address; // Z0tzFeeAccountingV7 — standalone recordFee emitter; NOT wired on testnet (nothing calls recordFee). Real fees come from `treasury`.
+  treasury?: Address; // Z0tzTreasury — emits FeeAggregated on every fee route (ledger/sweeper). Live fee-event source.
+  accountFactory?: Address; // Z0tzAccountFactory — emits AccountCreated on smart-account deploy. Source for accounts_v7.
   internalBridge?: Address; zusdcTransmitter?: Address; zusdcMessenger?: Address; mockYieldStrategy?: Address; timedVault?: Address;
   emergencyKeyMethod?: Address; guardianQuorumMethod?: Address;
   policyFactory?: Address;

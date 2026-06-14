@@ -22,7 +22,20 @@ const EV = {
   nameClaimed: parseAbiItem("event NameClaimed(bytes32 indexed nameHash, bytes32 indexed pubkeyHash, address indexed resolvedAccount, bool isSubdomainRoot)") as AbiEvent,
   subdomainClaimed: parseAbiItem("event SubdomainClaimed(bytes32 indexed parentNameHash, bytes32 indexed leafNameHash, bytes32 indexed pubkeyHash, address resolvedAccount)") as AbiEvent,
   claimed: parseAbiItem("event Claimed(bytes32 indexed pubkeyHash, address indexed account, uint256 amount)") as AbiEvent,
+  // FeeRecorded is emitted by Z0tzFeeAccountingV7 — a standalone contract that
+  // is deployed but NEVER wired on testnet (nothing calls its onlyRecorder
+  // recordFee). Kept for reference; the LIVE fee event is FeeAggregated from
+  // Z0tzTreasury (below), emitted by the ledger/sweeper on every fee route.
   feeRecorded: parseAbiItem("event FeeRecorded(address indexed account, bytes32 indexed opKind, address indexed token, uint64 baseAmount, uint64 protocolFee, uint64 gasReimbursed, uint64 timestamp)") as AbiEvent,
+  // Z0tzTreasury.aggregateFee → the actual on-chain protocol-fee event. Token-
+  // keyed (no per-account / per-opKind split): `amount` is the gross fee routed,
+  // = toPaymaster + retained. Mapped into fee_events_v7 with account=treasury
+  // sentinel, op_kind="aggregate", protocol_fee=amount, gas_reimbursed=toPaymaster.
+  feeAggregated: parseAbiItem("event FeeAggregated(address indexed token, uint256 amount, uint256 toPaymaster, uint256 retained)") as AbiEvent,
+  // Z0tzAccountFactory.AccountCreated → smart-account deploy (lazy, on first
+  // userop initCode). ownerX/ownerY are NOT indexed. Mirrors the proven V6.5
+  // AccountFactory.AccountCreated → smart_accounts source.
+  accountCreated: parseAbiItem("event AccountCreated(address indexed account, uint256 ownerX, uint256 ownerY)") as AbiEvent,
   transfer: parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)") as AbiEvent,
   // ── Tezcatli vault (defi/tezcatli) ──────────────────────────────────────
   // Exact signatures from TezcatliVaultV7.sol — the prompt's preliminary
@@ -111,15 +124,27 @@ function sources(d: V7Deployment): Source[] {
     { key: "airdrop.Claimed", address: d.airdropClaim, event: EV.claimed, handle: async (a, m, chainId) => {
       await c.execute({ sql: `INSERT OR IGNORE INTO airdrop_claims_v7 (chain_id, pubkey_hash, account, amount, block, tx_hash, ts) VALUES (?,?,?,?,?,?,?)`,
         args: [chainId, a.pubkeyHash, String(a.account).toLowerCase(), String(a.amount), m.block, m.txHash, m.ts] }); } },
-    // Fee accounting (FeeRecorded) — emitted by the ledger when ops settle
-    // protocol fee + gas reimbursement. opKind is a bytes32 tag (e.g.
-    // keccak256("CASHOUT")). The break-even dashboard reads from here.
-    // V7-FINAL: FeeRecorded is emitted by Z0tzFeeAccountingV7, NOT the ledger.
-    // Pointing at d.ledger never matched. Fall back to ledger only if the
-    // deployment blob predates the feeAccounting field.
-    { key: "ledger.FeeRecorded", address: (d.feeAccounting ?? d.ledger) as Address, event: EV.feeRecorded, handle: async (a, m, chainId) => {
+    // Smart-account deploys (AccountCreated) — emitted by Z0tzAccountFactory
+    // when the proxy is created (lazy, via initCode on the first userop, or via
+    // a direct createAccount). ownerX/ownerY are NOT indexed; we store the
+    // account address + the public owner pubkey coords. Mirrors the proven
+    // V6.5 AccountFactory.AccountCreated → smart_accounts source. pubkey_hash
+    // is left null (the factory event carries raw coords, not the hash).
+    { key: "account.Created", address: d.accountFactory as Address, event: EV.accountCreated, handle: async (a, m, chainId) => {
+      await c.execute({ sql: `INSERT OR IGNORE INTO accounts_v7 (chain_id, account, pubkey_hash, deployed_at) VALUES (?,?,?,?)`,
+        args: [chainId, String(a.account).toLowerCase(), null, m.ts] }); } },
+    // Protocol fees (FeeAggregated) — emitted by Z0tzTreasury on every fee
+    // route from the ledger/sweeper/timed-vault. The break-even dashboard reads
+    // fee_events_v7. NOTE: the prior source pointed at Z0tzFeeAccountingV7's
+    // FeeRecorded, which is a standalone contract nothing calls on testnet → 0
+    // rows. FeeAggregated is token-keyed (no per-account/opKind), so we map:
+    // account = treasury sentinel, op_kind = "aggregate", base_amount = total
+    // routed, protocol_fee = retained, gas_reimbursed = toPaymaster split.
+    // CONTRACT GAP (see redeploy list): for true per-op/per-account fee
+    // analytics, the ledger/sweeper should call Z0tzFeeAccountingV7.recordFee.
+    { key: "treasury.FeeAggregated", address: (d.treasury ?? d.feeAccounting) as Address, event: EV.feeAggregated, handle: async (a, m, chainId) => {
       await c.execute({ sql: `INSERT OR IGNORE INTO fee_events_v7 (chain_id, account, op_kind, base_amount, protocol_fee, gas_reimbursed, block, tx_hash, log_index, ts) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-        args: [chainId, String(a.account).toLowerCase(), String(a.opKind), String(a.baseAmount), String(a.protocolFee), String(a.gasReimbursed), m.block, m.txHash, m.logIndex, m.ts] }); } },
+        args: [chainId, String((d.treasury ?? d.feeAccounting ?? "0x0000000000000000000000000000000000000000")).toLowerCase(), "aggregate", String(a.amount), String(a.retained), String(a.toPaymaster), m.block, m.txHash, m.logIndex, m.ts] }); } },
     // ── Tezcatli yield vault — only registered when the chain has it. ──
     // `account` = beneficiary (deposit) / owner (withdraw); strategy events
     // are vault-wide so we store account = vault address as a sentinel.

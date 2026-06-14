@@ -18,7 +18,7 @@ import { v7Deployment } from "@/lib/relayer/v7";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
 import { ErrorResponseSchema } from "@/lib/openapi/schemas-v7";
 import { errorResponse } from "@/lib/relayer/api-helpers";
-import { withApiLog } from "@/lib/relayer/request-log";
+import { withApiLog, type LoggedContext } from "@/lib/relayer/request-log";
 
 const ScanResponseSchema = z
   .object({
@@ -56,7 +56,7 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: v7CorsHeaders });
 }
 
-export const POST = withApiLog("/api/v7/scan", async (req: NextRequest, ctx) => {
+async function runScan(req: NextRequest, ctx: LoggedContext): Promise<NextResponse> {
   try {
     const url = new URL(req.url);
     const chainIdStr = url.searchParams.get("chainId");
@@ -78,4 +78,22 @@ export const POST = withApiLog("/api/v7/scan", async (req: NextRequest, ctx) => 
     ctx.errorCode = "scan_failed";
     return errorResponse(500, "scan_failed", v7CorsHeaders, e);
   }
+}
+
+export const POST = withApiLog("/api/v7/scan", runScan);
+
+// Vercel cron invokes the scheduled path with GET. Same logic. If CRON_SECRET
+// is set, require it (Vercel sends x-vercel-cron + the bearer for crons);
+// otherwise allow — the indexer only writes public on-chain data, idempotently.
+export const GET = withApiLog("/api/v7/scan", async (req: NextRequest, ctx) => {
+  const secret = process.env.CRON_SECRET;
+  if (secret) {
+    const auth = req.headers.get("authorization") ?? "";
+    const isVercelCron = req.headers.get("x-vercel-cron") != null;
+    if (!isVercelCron && auth !== `Bearer ${secret}`) {
+      ctx.errorCode = "unauthorized";
+      return NextResponse.json({ error: "unauthorized" }, { status: 401, headers: v7CorsHeaders });
+    }
+  }
+  return runScan(req, ctx);
 });
