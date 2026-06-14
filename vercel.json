@@ -30,10 +30,5 @@
     "app/api/v7/tezcatli/cashout-cosign/route.ts": {
       "maxDuration": 15
     }
-  },
-  "crons": [
-    { "path": "/api/v7/scan?chainId=421614", "schedule": "* * * * *" },
-    { "path": "/api/v7/scan?chainId=84532", "schedule": "* * * * *" },
-    { "path": "/api/v7/scan?chainId=11155111", "schedule": "*/2 * * * *" }
-  ]
+  }
 }
