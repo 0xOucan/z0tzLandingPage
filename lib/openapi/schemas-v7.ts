@@ -136,6 +136,30 @@ export const TezcatliSweepReqSchema = z
   .object({ chainId: ChainIdSchema, sweep: TezcatliSweepParamsSchema })
   .openapi("TezcatliSweepRequest");
 
+// ── /api/v7/tezcatli/unsweep ──────────────────────────────────────────────
+// V7-FINAL-2: sweepFromTezcatli — gasless Tezcatli exit. The position is owned
+// by the smart `account`, authorized by the account's passkey P-256 sig (raw
+// keccak, no eth-prefix, verified vs the account's CURRENT owner). Funds exit
+// to a fresh one-time destStealth. Digest binds bytes32("tezcatliWithdraw").
+export const TezcatliWithdrawParamsSchema = z
+  .object({
+    account: AddressSchema.openapi({ description: "Tezcatli position owner (smart account)" }),
+    token: AddressSchema,
+    shares: BigIntStr.openapi({ description: "uint256 shares to burn" }),
+    destStealth: AddressSchema.openapi({ description: "Fresh one-time exit destination" }),
+    nonce: BigIntStr.openapi({ description: "sweeper.tezcatliWithdrawNonce(account)" }),
+    deadline: BigIntStr.openapi({ description: "Unix seconds; reverts past this" }),
+    pkX: BigIntStr,
+    pkY: BigIntStr,
+    sigR: BigIntStr,
+    sigS: BigIntStr,
+  })
+  .openapi("TezcatliWithdrawParams");
+
+export const TezcatliWithdrawReqSchema = z
+  .object({ chainId: ChainIdSchema, withdraw: TezcatliWithdrawParamsSchema })
+  .openapi("TezcatliWithdrawRequest");
+
 // ── /api/v7/spend ───────────────────────────────────────────────────────
 
 export const SpendOpSchema = z

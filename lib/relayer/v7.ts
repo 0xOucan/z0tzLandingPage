@@ -290,6 +290,11 @@ const sweeperAbi = [{ name: "privateSweepToLedger", type: "function", stateMutab
 // amount and deadline.
 const tezcatliSweeperAbi = [{ name: "sweepToTezcatli", type: "function", stateMutability: "nonpayable",
   inputs: [{ name: "stealthAddress", type: "address" }, { name: "token", type: "address" }, { name: "account", type: "address" }, { name: "viewer", type: "address" }, { name: "nonce", type: "uint256" }, { name: "amount", type: "uint64" }, { name: "lockOption", type: "uint8" }, { name: "deadline", type: "uint256" }, { name: "signature", type: "bytes" }], outputs: [] }] as const;
+// V7-FINAL-2: gasless Tezcatli exit. Position is owned by the smart `account`,
+// authorized by the account's passkey P-256 sig (raw keccak vs current owner).
+// Arg order MUST match Z0tzSweeperV7.sweepFromTezcatli exactly (10 args).
+const tezcatliWithdrawAbi = [{ name: "sweepFromTezcatli", type: "function", stateMutability: "nonpayable",
+  inputs: [{ name: "account", type: "address" }, { name: "token", type: "address" }, { name: "shares", type: "uint256" }, { name: "destStealth", type: "address" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }, { name: "pkX", type: "uint256" }, { name: "pkY", type: "uint256" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" }], outputs: [] }] as const;
 const namesAbi = [
   // V7-FINAL #14: `claim` now takes cleartext `name` as the first param so
   // the contract can validate the ASCII allowlist + length on-chain and
@@ -464,6 +469,30 @@ export async function submitTezcatliSweep(chainId: number, r: TezcatliSweepReq):
   await simulateOrThrow(pub, simArgs);
   const gas = await estimateOrFallback(pub, simArgs, 900_000n);
   const txHash = await wallet.writeContract({ address: d.sweeper, abi: tezcatliSweeperAbi, functionName: "sweepToTezcatli", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
+}
+
+// V7-FINAL-2: one-tx gasless Tezcatli exit via Z0tzSweeperV7.sweepFromTezcatli.
+// The account's passkey P-256 sig authorizes burning `shares`; the sweeper
+// unshields the underlying out of the vault and forwards it to a fresh one-time
+// destStealth (no cash-in fee on the exit). Independent tezcatliWithdrawNonce
+// track binds bytes32("tezcatliWithdraw") so a deposit/cashin sig can't replay.
+export interface TezcatliWithdrawReq {
+  account: Address; token: Address; shares: string; destStealth: Address;
+  nonce: string; deadline: string; pkX: string; pkY: string; sigR: string; sigS: string;
+}
+export async function submitTezcatliWithdraw(chainId: number, r: TezcatliWithdrawReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  // Arg order mirrors the contract: account, token, shares(uint256),
+  // destStealth, nonce, deadline, pkX, pkY, sigR, sigS.
+  const args = [r.account, r.token, BigInt(r.shares), r.destStealth, BigInt(r.nonce), BigInt(r.deadline), BigInt(r.pkX), BigInt(r.pkY), BigInt(r.sigR), BigInt(r.sigS)] as const;
+  const simArgs = { address: d.sweeper, abi: tezcatliWithdrawAbi, functionName: "sweepFromTezcatli", args, account } as const;
+  // Bug-#4 pattern: simulate before broadcast so contract-level reverts surface
+  // as a 400 with the revert reason instead of a silently-mined failed tx.
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 900_000n);
+  const txHash = await wallet.writeContract({ address: d.sweeper, abi: tezcatliWithdrawAbi, functionName: "sweepFromTezcatli", args, gas } as any) as Hex;
   scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }
