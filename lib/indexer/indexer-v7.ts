@@ -7,7 +7,7 @@
  */
 import { createPublicClient, decodeEventLog, parseAbiItem, toEventSelector, pad, type AbiEvent, type Address } from "viem";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
-import { getLogsPaginated, type EtherscanLog } from "./etherscan";
+import { getLogsPaginatedScan, type EtherscanLog } from "./etherscan";
 import { makeTransport } from "../relayer/rpc";
 import * as db from "./turso-v7";
 import type { V7Deployment } from "../relayer/v7";
@@ -91,6 +91,20 @@ function chainFor(chainId: number) {
     case 31337: return hardhat;
     default: throw new Error(`Unsupported chainId: ${chainId}`);
   }
+}
+
+/** Parse + validate the optional DEPLOY_BLOCK_V7_<chainId> env. A mangled
+ *  paste (e.g. an em-dash or stray char) makes Number(...) return NaN, which
+ *  silently breaks every cursor comparison (`from > head` is false for NaN →
+ *  scans from genesis or skips). Validate it explicitly and fail loudly. */
+function deployBlockFor(chainId: number): number {
+  const raw = process.env[`DEPLOY_BLOCK_V7_${chainId}`];
+  if (raw === undefined || raw === "") return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(`DEPLOY_BLOCK_V7_${chainId} is malformed (expected a non-negative integer): "${raw}"`);
+  }
+  return n;
 }
 
 async function headBlock(chainId: number): Promise<number> {
@@ -249,21 +263,29 @@ export async function indexV7Chain(chainId: number, d: V7Deployment, opts?: { st
   await db.ensureSchema();
   const head = await headBlock(chainId);
   const deadline = opts?.maxMs ? Date.now() + opts.maxMs : undefined;
-  const startFallback = opts?.startBlock ?? Number(process.env[`DEPLOY_BLOCK_V7_${chainId}`] ?? 0);
+  const startFallback = opts?.startBlock ?? deployBlockFor(chainId);
 
   for (const src of sources(d)) {
     if (deadline && Date.now() > deadline) break;
     const last = await db.getLastScanBlock(chainId, src.address, src.key);
     const from = last > 0 ? last + 1 : startFallback;
     if (from > head) continue;
-    const logs = await getLogsPaginated({ chainId, address: src.address, fromBlock: from, toBlock: head, topic0: toEventSelector(src.event), deadline });
-    for (const l of logs ?? []) {
+    const { logs, lastScannedBlock, truncated } = await getLogsPaginatedScan({ chainId, address: src.address, fromBlock: from, toBlock: head, topic0: toEventSelector(src.event), deadline });
+    // Hard fetch failure (logs === null): do NOT advance the cursor — the
+    // next tick retries this same range from `from`.
+    if (logs === null) continue;
+    for (const l of logs) {
       try {
         const { args } = decodeEventLog({ abi: [src.event], data: l.data as `0x${string}`, topics: l.topics as any });
         await src.handle(args, meta(l), chainId);
       } catch { /* skip undecodable / mismatched logs */ }
     }
-    await db.setScanState(chainId, src.address, src.key, head);
+    // CRITICAL: advance scan_state ONLY to the last FULLY-scanned block, never
+    // to head on a truncated scan. Advancing to head here would permanently
+    // skip the unscanned [lastScannedBlock+1, head] range (silent data loss).
+    // On a complete scan lastScannedBlock === head, so this is a no-op change.
+    const cursor = truncated ? lastScannedBlock : head;
+    if (cursor >= from) await db.setScanState(chainId, src.address, src.key, cursor);
   }
   await indexStealthInbound(chainId, d, { startBlock: startFallback, deadline });
 }
@@ -279,7 +301,7 @@ export async function indexStealthInbound(chainId: number, d: V7Deployment, opts
   const head = await headBlock(chainId);
   const topic0 = toEventSelector(EV.transfer);
   const tokens = [d.zusdc, d.usdc].filter(Boolean) as Address[];
-  const startFallback = opts?.startBlock ?? Number(process.env[`DEPLOY_BLOCK_V7_${chainId}`] ?? 0);
+  const startFallback = opts?.startBlock ?? deployBlockFor(chainId);
 
   for (const token of tokens) {
     for (const w of watchlist) {
@@ -288,15 +310,19 @@ export async function indexStealthInbound(chainId: number, d: V7Deployment, opts
       const last = await db.getLastScanBlock(chainId, token, key);
       const from = last > 0 ? last + 1 : startFallback;
       if (from > head) continue;
-      const logs = await getLogsPaginated({ chainId, address: token, fromBlock: from, toBlock: head, topic0, topic2: pad(w.stealthAddress as Address, { size: 32 }), deadline: opts?.deadline });
-      for (const l of logs ?? []) {
+      const { logs, lastScannedBlock, truncated } = await getLogsPaginatedScan({ chainId, address: token, fromBlock: from, toBlock: head, topic0, topic2: pad(w.stealthAddress as Address, { size: 32 }), deadline: opts?.deadline });
+      if (logs === null) continue; // fetch failure — retry this range next tick
+      for (const l of logs) {
         try {
           const { args } = decodeEventLog({ abi: [EV.transfer], data: l.data as `0x${string}`, topics: l.topics as any });
           const m = meta(l);
           await db.recordInbound({ chainId, stealthAddress: w.stealthAddress, token, from: String((args as any).from), amount: String((args as any).value), block: m.block, txHash: m.txHash, logIndex: m.logIndex, ts: m.ts });
         } catch { /* skip */ }
       }
-      await db.setScanState(chainId, token, key, head);
+      // Advance only to the last fully-scanned block on truncation (see the
+      // CRITICAL note in indexV7Chain) — never to head, or we lose the gap.
+      const cursor = truncated ? lastScannedBlock : head;
+      if (cursor >= from) await db.setScanState(chainId, token, key, cursor);
     }
   }
 }

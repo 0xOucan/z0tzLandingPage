@@ -8,7 +8,7 @@ import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { z } from "zod";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { makeTransport } from "@/lib/relayer/rpc";
-import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
+import { triggerV7ScanAndRecord } from "@/lib/relayer/trigger-indexer";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
 import { v7Deployment } from "@/lib/relayer/v7";
 import { withApiLog, type LoggedContext } from "@/lib/relayer/request-log";
@@ -409,7 +409,7 @@ async function handler(req: NextRequest, ctx: LoggedContext): Promise<NextRespon
   await recordReplay({ srcChainId, srcTxHash, dstChainId, dstTxHash, status });
 
   if (status === "delivered") {
-    triggerScanAndRecord({ chainId: dstChainId, txHash: dstTxHash, opKind: "bridge-cctp-receive", req });
+    triggerV7ScanAndRecord({ chainId: dstChainId, txHash: dstTxHash, opKind: "bridge-cctp-receive", req });
   }
 
   ctx.chainId = dstChainId;

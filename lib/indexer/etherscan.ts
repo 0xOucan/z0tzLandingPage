@@ -272,11 +272,31 @@ async function getLogsViaRpc(params: {
 }
 
 /**
+ * Result of a paginated scan. `lastScannedBlock` is the highest block that
+ * was FULLY scanned for this filter — the caller MUST persist scan_state to
+ * this value, not to the chain head. `truncated` is true when the scan
+ * stopped early (deadline / page cap) before reaching `toBlock`, meaning
+ * blocks above `lastScannedBlock` are NOT yet covered and must be resumed.
+ * `logs` is null only on a hard fetch failure (caller should not advance).
+ */
+export type PaginatedLogs = {
+  logs: EtherscanLog[] | null;
+  lastScannedBlock: number;
+  truncated: boolean;
+};
+
+/**
  * Paginated getLogs that follows the 1000-log cap. Walks fromBlock forward
  * each iteration until the response is non-full, indicating we've caught
  * up to toBlock for this filter.
+ *
+ * CRITICAL (cursor correctness): on early exit (deadline or page cap) this
+ * returns `truncated:true` with `lastScannedBlock` set to the last block we
+ * KNOW is fully covered — never `toBlock`. The caller advances scan_state to
+ * `lastScannedBlock` so the next tick resumes from the unscanned remainder
+ * instead of silently skipping it.
  */
-export async function getLogsPaginated(params: {
+export async function getLogsPaginatedScan(params: {
   chainId: number;
   address: string;
   fromBlock: number;
@@ -287,29 +307,70 @@ export async function getLogsPaginated(params: {
   topic3?: string;
   maxPages?: number; // safety cap, default 50 = 50K logs per call
   deadline?: number; // optional Date.now()-based hard exit
-}): Promise<EtherscanLog[] | null> {
+}): Promise<PaginatedLogs> {
   const maxPages = params.maxPages ?? 50;
   const all: EtherscanLog[] = [];
   let cursor = params.fromBlock;
+  // The highest block fully covered so far. Until we make any progress this
+  // is one below fromBlock (nothing scanned yet).
+  let lastScannedBlock = params.fromBlock - 1;
   for (let i = 0; i < maxPages; i++) {
-    // Bail early if the function-budget deadline is past. Returning what
-    // we have so far + null cursor advance lets the caller persist
-    // partial scan_state and resume on the next trigger.
+    // Bail early if the function-budget deadline is past. We've fully scanned
+    // up to `lastScannedBlock`; everything above is still pending. Report
+    // truncated so the caller advances scan_state only to lastScannedBlock.
     if (params.deadline !== undefined && Date.now() > params.deadline) {
-      return all;
+      return { logs: all, lastScannedBlock, truncated: true };
     }
     const page = await getLogs({ ...params, fromBlock: cursor });
-    if (page === null) return null;
-    if (page.length === 0) break;
+    if (page === null) {
+      // Hard fetch failure: caller must NOT advance the cursor at all.
+      return { logs: null, lastScannedBlock, truncated: true };
+    }
+    if (page.length === 0) {
+      // No more logs in [cursor, toBlock]: the whole requested range is done.
+      lastScannedBlock = params.toBlock;
+      break;
+    }
     all.push(...page);
-    if (page.length < 1000) break; // we got everything for this range
-    // Advance past the last block we got. Note: this may re-fetch logs
-    // from the last block if it has multiple logs. We de-dup at insert
-    // time via PRIMARY KEY (chain, tx, logIndex), so duplicates are
-    // free.
-    const lastBlockHex = page[page.length - 1].blockNumber;
-    const lastBlock = parseInt(lastBlockHex, 16);
+    if (page.length < 1000) {
+      // Got everything for this range — fully scanned through toBlock.
+      lastScannedBlock = params.toBlock;
+      break;
+    }
+    // Page was full (1000 logs). We've fully covered everything strictly
+    // BELOW the last block in this page (that block may have more logs we
+    // haven't fetched yet), so only blocks < lastBlock are guaranteed done.
+    // We de-dup at insert time via PRIMARY KEY (chain, tx, logIndex), so the
+    // re-fetch of lastBlock on the next page is free.
+    const lastBlock = parseInt(page[page.length - 1].blockNumber, 16);
+    lastScannedBlock = Math.max(lastScannedBlock, lastBlock - 1);
     cursor = lastBlock;
+    if (i === maxPages - 1) {
+      // Hit the page cap without draining the range — truncated.
+      return { logs: all, lastScannedBlock, truncated: true };
+    }
   }
-  return all;
+  return { logs: all, lastScannedBlock, truncated: false };
+}
+
+/**
+ * Backward-compatible array-returning paginated scan. Used by the frozen
+ * V6.5 indexer (`indexer.ts`), which manages its own chunk-level cursor and
+ * only needs the logs (a null return signals fetch failure). New V7 code
+ * should call `getLogsPaginatedScan` and honor `truncated` / `lastScannedBlock`.
+ */
+export async function getLogsPaginated(params: {
+  chainId: number;
+  address: string;
+  fromBlock: number;
+  toBlock: number;
+  topic0?: string;
+  topic1?: string;
+  topic2?: string;
+  topic3?: string;
+  maxPages?: number;
+  deadline?: number;
+}): Promise<EtherscanLog[] | null> {
+  const r = await getLogsPaginatedScan(params);
+  return r.logs;
 }

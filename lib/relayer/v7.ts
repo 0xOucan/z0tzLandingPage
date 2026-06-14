@@ -77,10 +77,69 @@ export function isEnabled(): boolean {
   return Boolean(process.env.RELAYER_PRIVATE_KEY);
 }
 
+// Address fields that MUST be present and well-formed on every chain that has
+// a V7 deployment env blob. (Registry-only chains that omit the whole blob are
+// handled by the `!raw` guard above — if the blob exists, these must be valid.)
+const REQUIRED_V7_ADDRESSES = [
+  "ledger", "sweeper", "vault", "nameRegistry", "recoveryHub",
+  "paymaster", "zusdc", "tokenRegistry",
+] as const;
+// Address fields that are optional (not deployed on every chain) but, when
+// present, must still be valid 0x-20-byte hex (a corrupted paste must throw,
+// not silently route a tx to a malformed address).
+const OPTIONAL_V7_ADDRESSES = [
+  "airdropClaim", "usdc", "entryPoint", "feeAccounting", "treasury",
+  "accountFactory", "internalBridge", "zusdcTransmitter", "zusdcMessenger",
+  "mockYieldStrategy", "timedVault", "emergencyKeyMethod", "guardianQuorumMethod",
+  "policyFactory", "tezcatliVault", "tezcatliAdapter", "tezcatliRiskPolicy",
+  "tezcatliFactory",
+] as const;
+
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
+function isValidAddress(v: unknown): v is Address {
+  return typeof v === "string" && ADDRESS_RE.test(v);
+}
+
+/**
+ * Parse + VALIDATE the DEPLOYMENT_V7_<chainId> env blob. The blob is pasted by
+ * hand into Vercel, so the failure mode is a truncated / em-dash-mangled JSON
+ * that either throws on parse or — worse — yields a partially-valid object
+ * where e.g. `d.sweeper` is undefined and a tx silently goes to
+ * `address(undefined)`. We fail loudly here instead, naming the offending
+ * field + chainId so the misconfig is obvious in logs.
+ */
 export function v7Deployment(chainId: number): V7Deployment {
   const raw = process.env[`DEPLOYMENT_V7_${chainId}`];
   if (!raw) throw new Error(`Missing DEPLOYMENT_V7_${chainId} (deploy + set the env blob)`);
-  return JSON.parse(raw) as V7Deployment;
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch (e: any) {
+    throw new Error(`DEPLOYMENT_V7_${chainId} is not valid JSON (likely a truncated/mangled paste): ${e?.message ?? e}`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`DEPLOYMENT_V7_${chainId} did not parse to a JSON object`);
+  }
+
+  for (const f of REQUIRED_V7_ADDRESSES) {
+    const v = (parsed as any)[f];
+    if (v === undefined || v === null) {
+      throw new Error(`DEPLOYMENT_V7_${chainId} missing required address field "${f}"`);
+    }
+    if (!isValidAddress(v)) {
+      throw new Error(`DEPLOYMENT_V7_${chainId} field "${f}" is not a valid 0x-20-byte address: "${String(v)}"`);
+    }
+  }
+  for (const f of OPTIONAL_V7_ADDRESSES) {
+    const v = (parsed as any)[f];
+    if (v !== undefined && v !== null && !isValidAddress(v)) {
+      throw new Error(`DEPLOYMENT_V7_${chainId} optional field "${f}" is present but malformed (expected 0x-20-byte address): "${String(v)}"`);
+    }
+  }
+
+  return parsed as unknown as V7Deployment;
 }
 
 function clients(chainId: number) {

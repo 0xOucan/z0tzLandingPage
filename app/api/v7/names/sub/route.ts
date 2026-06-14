@@ -4,7 +4,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { makeTransport } from "@/lib/relayer/rpc";
-import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
+import { triggerV7ScanAndRecord } from "@/lib/relayer/trigger-indexer";
 import { v7CorsHeaders } from "@/lib/openapi/registry";
 import { v7Deployment } from "@/lib/relayer/v7";
 import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
@@ -82,7 +82,7 @@ export const POST = withApiLog("/api/v7/names/sub", async (req: NextRequest, ctx
 
     const txHash = await wallet.writeContract({ address: reg, abi, functionName: "claimSubdomain", args, account, chain, gas } as any);
     await pub.waitForTransactionReceipt({ hash: txHash });
-    triggerScanAndRecord({ chainId, txHash, opKind: "names-sub", req });
+    triggerV7ScanAndRecord({ chainId, txHash, opKind: "names-sub", req });
     ctx.txHash = txHash;
     return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
   } catch (e: any) {

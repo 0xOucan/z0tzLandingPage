@@ -5,7 +5,7 @@ import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { makeTransport } from "@/lib/relayer/rpc";
 import { isBypassRequest } from "@/lib/relayer/bypass";
-import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
+import { triggerV7ScanAndRecord } from "@/lib/relayer/trigger-indexer";
 import { v7CorsHeaders } from "@/lib/openapi/registry";
 import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
 import { withApiLog } from "@/lib/relayer/request-log";
@@ -133,7 +133,7 @@ export const POST = withApiLog("/api/v7/fund-stealth", async (req: NextRequest, 
     });
     await client.waitForTransactionReceipt({ hash: txHash });
 
-    triggerScanAndRecord({
+    triggerV7ScanAndRecord({
       chainId,
       txHash,
       opKind: "fund-stealth",

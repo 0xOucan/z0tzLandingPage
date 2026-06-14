@@ -339,3 +339,52 @@ the event tier from "eventually consistent if you're lucky" into a provably comp
 projection of the request ledger, which is exactly what the audit/analytics/history
 goal requires — and it is far cheaper than re-architecting the relayer trust model
 (which is the right *next* priority but a larger lift).
+
+---
+
+## Appendix — DB-integrity fixes shipped (2026-06-14)
+
+Three of the DB-as-source-of-truth findings above are now fixed in code:
+
+1. **Cursor-advance-on-truncation (§3.1, risk #2) — FIXED.** `getLogsPaginated` was
+   split: the rich `getLogsPaginatedScan` now returns
+   `{ logs, lastScannedBlock, truncated }`. `indexV7Chain` + `indexStealthInbound`
+   advance `scan_state` only to `lastScannedBlock` on a truncated/page-capped scan
+   (never to `head`), and skip the cursor entirely on a hard fetch failure
+   (`logs === null`). The legacy array-returning `getLogsPaginated` is kept as a thin
+   wrapper for the frozen V6.5 indexer.
+2. **Wrong (V6.5) indexer for V7 routes (§3 Path 3, risk #3) — FIXED.** Added
+   `triggerV7ScanAndRecord` / `triggerV7IndexScan` (POST `/api/v7/scan?chainId=`,
+   forwards `CRON_SECRET`). The 7 V7 routes (names/sub, names/update, deploy-account,
+   fund-stealth, multispend, userop, bridge-relay) now kick the **V7** indexer; the
+   legacy `triggerScanAndRecord` (→ `/api/index/trigger`) is left to V6.5 routes only.
+   One indexer per generation.
+3. **No boot/parse validation of `DEPLOYMENT_V7_<id>` (§5, risk #5) — FIXED.**
+   `v7Deployment()` now validates after `JSON.parse`: required address fields
+   (ledger, sweeper, vault, nameRegistry, recoveryHub, paymaster, zusdc, tokenRegistry)
+   must be present and 0x-20-byte hex; optional fields (accountFactory, internalBridge,
+   zusdcMessenger, feeAccounting, treasury, the tezcatli set, …) are format-checked when
+   present. Throws a clear error naming the field + chainId. `DEPLOY_BLOCK_V7_<id>` is
+   likewise validated (non-negative integer, no silent `NaN`).
+
+### Still TODO — reconciliation cron (§3 risk #3, "Highest-leverage refactor" step 3)
+
+Not yet built. Spec:
+
+- New route `GET /api/v7/reconcile?chainId=<id>[&maxMs=]` (cron-gated by `CRON_SECRET`,
+  same as `/api/v7/scan`).
+- Walk `api_events` rows where `status = 200 AND tx_hash IS NOT NULL AND chain_id = ?`
+  within a recent window (e.g. last 24h, bounded by `maxMs`).
+- For each `tx_hash`, check whether ANY typed-table row exists for `(chain_id, tx_hash)`
+  across the V7 event tables (`credit_events_v7`, `ledger_events_v7`, `sweeper_events_v7`,
+  `airdrop_claims_v7`, `name_records_v7`, `recovery_events_v7`, `fee_events_v7`,
+  `tezcatli_events_v7`, `accounts_v7`, `audit_alerts_v7`, `stealth_inbound`). Cheapest:
+  a `tx_hash`-indexed lookup per table, or a small materialized `tx_index_v7(chain_id,
+  tx_hash)` populated by the source handlers.
+- On miss, re-mirror via `mirrorTxLogsToV7({ chainId, txHash, deployment })` (idempotent
+  INSERT OR IGNORE). A persistent miss after re-mirror (tx reverted/reorged) is recorded
+  to an `api_events_reconcile` audit row rather than retried forever.
+- Add a `vercel.json` cron entry (every 5–15 min per chain). This turns `api_events`
+  into the authoritative spine and the typed tables into a self-healing projection.
+  Deferred here because it requires a new table/index + a cron entry (vercel.json is
+  out of scope for this pass).

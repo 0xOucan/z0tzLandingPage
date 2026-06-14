@@ -4,7 +4,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { makeTransport } from "@/lib/relayer/rpc";
-import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
+import { triggerV7ScanAndRecord } from "@/lib/relayer/trigger-indexer";
 import { v7CorsHeaders } from "@/lib/openapi/registry";
 import { parseJson, errorResponse } from "@/lib/relayer/api-helpers";
 import { withApiLog } from "@/lib/relayer/request-log";
@@ -104,7 +104,7 @@ export const POST = withApiLog("/api/v7/deploy-account", async (req: NextRequest
     });
     await pub.waitForTransactionReceipt({ hash });
 
-    triggerScanAndRecord({ chainId, txHash: hash, opKind: "deploy-account", req });
+    triggerV7ScanAndRecord({ chainId, txHash: hash, opKind: "deploy-account", req });
 
     ctx.txHash = hash;
     return NextResponse.json({ account: predicted, txHash: hash }, { headers: v7CorsHeaders });

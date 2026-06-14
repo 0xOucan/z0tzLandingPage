@@ -6,7 +6,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { geofenceResponse } from "@/lib/relayer/geofence";
 import { makeTransport } from "@/lib/relayer/rpc";
-import { triggerScanAndRecord } from "@/lib/relayer/trigger-indexer";
+import { triggerV7ScanAndRecord } from "@/lib/relayer/trigger-indexer";
 import { v7CorsHeaders, v7Registry } from "@/lib/openapi/registry";
 import { v7Deployment } from "@/lib/relayer/v7";
 import {
@@ -215,7 +215,7 @@ export const POST = withApiLog("/api/v7/multispend", async (req: NextRequest, ct
     await pub.waitForTransactionReceipt({ hash: txHash });
     ctx.txHash = txHash;
 
-    triggerScanAndRecord({ chainId, txHash, opKind: "multispend", req });
+    triggerV7ScanAndRecord({ chainId, txHash, opKind: "multispend", req });
 
     return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
   } catch (e: any) {

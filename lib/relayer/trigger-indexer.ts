@@ -42,6 +42,52 @@ export function triggerScanAndRecord(opts: {
   }
 }
 
+/**
+ * V7 variant of {@link triggerScanAndRecord}. The legacy `triggerScanAndRecord`
+ * kicks `/api/index/trigger`, which is the **V6.5** indexer (indexChain,
+ * V65_DEPLOY_BLOCK, V6.5 scan_state). V7 routes whose events live in the V7
+ * typed tables must instead kick the **V7** indexer (`/api/v7/scan`, indexV7Chain,
+ * DEPLOY_BLOCK_V7_<id>, V7 scan_state). Pointing V7 routes at the V6.5 indexer
+ * was wasted work (their data only reached V7 tables via the after()-mirror or
+ * the V7 cron) and silently 500'd when V6.5 Etherscan/Turso env was unset.
+ *
+ * Cost recording is generation-agnostic, so it is shared verbatim.
+ */
+export function triggerV7ScanAndRecord(opts: {
+  chainId: number;
+  txHash?: Hex;
+  opKind: OpKind;
+  req: NextRequest;
+}): void {
+  void triggerV7IndexScan(opts.chainId, opts.req).catch(() => {});
+  if (opts.txHash) {
+    void recordOpCostAsync({
+      chainId: opts.chainId,
+      txHash: opts.txHash,
+      opKind: opts.opKind,
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Kick the V7 indexer for one chain via POST /api/v7/scan?chainId=. Caller
+ * should NOT await; just void the returned promise. Idempotent (INSERT OR
+ * IGNORE on (chain, tx, logIndex)), so it reconciles cleanly with the
+ * after()-mirror and the V7 cron.
+ */
+export async function triggerV7IndexScan(chainId: number, req: NextRequest): Promise<void> {
+  const base = triggerIndexerBaseUrl(req);
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  // /api/v7/scan honors CRON_SECRET when set; forward it so internal kicks
+  // are accepted the same way the cron is.
+  const secret = process.env.CRON_SECRET;
+  if (secret) headers["authorization"] = `Bearer ${secret}`;
+  await fetch(`${base}/api/v7/scan?chainId=${encodeURIComponent(String(chainId))}`, {
+    method: "POST",
+    headers,
+  });
+}
+
 export function triggerIndexerBaseUrl(req: NextRequest): string {
   return (
     process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ??
