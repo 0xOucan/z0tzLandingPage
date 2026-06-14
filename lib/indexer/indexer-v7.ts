@@ -46,6 +46,12 @@ const EV = {
   // dropped. Handler reads a.grossAmount.
   sweeperPrivateSweep: parseAbiItem("event PrivateSweep(address indexed stealthAddress, address indexed account, address indexed token, uint256 grossAmount, uint256 fee, uint64 netUnits, bool feeSettled)") as AbiEvent,
   sweeperFeeTransferFailed: parseAbiItem("event FeeTransferFailed(address indexed token, uint256 amount, bytes reason)") as AbiEvent,
+  // Sweeper V7: one-tx sweep straight into the Tezcatli yield vault. The
+  // vault's Deposited event (already indexed) loses the sweep fee + stealth
+  // origin, so capture them here from the sweeper. Signature matches
+  // Z0tzSweeperV7.sol: (stealth, account, token, grossAmount, fee, deposited,
+  // lockOption, feeSettled).
+  sweeperSweptToTezcatli: parseAbiItem("event SweptToTezcatli(address indexed stealthAddress, address indexed account, address indexed token, uint256 grossAmount, uint256 fee, uint256 deposited, uint8 lockOption, bool feeSettled)") as AbiEvent,
   // Internal bridge: opaque-mint + unknown-source alerts. burnNonce matches
   // the uint64 binding in InternalMessage / BurnMessage.
   bridgePendingMintRecorded: parseAbiItem("event PendingMintRecorded(uint64 indexed burnNonce, uint256 amount)") as AbiEvent,
@@ -147,6 +153,20 @@ function sources(d: V7Deployment): Source[] {
         args: [chainId, String(a.stealthAddress).toLowerCase(), String(a.token).toLowerCase(), String(a.account).toLowerCase(), String(a.grossAmount), String(a.fee), a.feeSettled ? 1 : 0, m.block, m.txHash, m.logIndex, m.ts] }); } },
     { key: "sweeper.FeeTransferFailed", address: d.sweeper, event: EV.sweeperFeeTransferFailed, handle: async (a, m, chainId) =>
       auditAlert(c, chainId, "sweeper.FeeTransferFailed", d.sweeper, { token: String(a.token).toLowerCase(), amount: String(a.amount), reason: String(a.reason) }, m) },
+    // Sweeper V7 SweptToTezcatli — one-tx cash-in into the yield vault. The
+    // vault's own Deposited event (indexed above) drops the sweep fee + the
+    // one-time stealth origin, so capture both here. We write a tezcatli_sweep
+    // row (fee + deposited assets, account = beneficiary) AND preserve the
+    // stealthAddress in audit_alerts_v7 since tezcatli_events_v7 has no stealth
+    // column. Both are best-effort + INSERT OR IGNORE (idempotent).
+    { key: "sweeper.SweptToTezcatli", address: d.sweeper, event: EV.sweeperSweptToTezcatli, handle: async (a, m, chainId) => {
+      await c.execute({ sql: `INSERT OR IGNORE INTO tezcatli_events_v7 (chain_id, account, token, kind, shares, assets, fee, fee_bps, block, tx_hash, log_index, ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        args: [chainId, String(a.account).toLowerCase(), String(a.token).toLowerCase(), "tezcatli_sweep", "0", String(a.deposited), String(a.fee), 0, m.block, m.txHash, m.logIndex, m.ts] });
+      await auditAlert(c, chainId, "sweeper.SweptToTezcatli", d.sweeper, {
+        stealthAddress: String(a.stealthAddress).toLowerCase(), account: String(a.account).toLowerCase(),
+        token: String(a.token).toLowerCase(), grossAmount: String(a.grossAmount), fee: String(a.fee),
+        deposited: String(a.deposited), lockOption: Number(a.lockOption), feeSettled: Boolean(a.feeSettled),
+      }, m); } },
     // Internal bridge — only registered when the deployment carries one.
     { key: "bridge.PendingMintRecorded", address: d.internalBridge as Address, event: EV.bridgePendingMintRecorded, handle: async (a, m, chainId) =>
       auditAlert(c, chainId, "bridge.PendingMintRecorded", d.internalBridge as Address, { burnNonce: String(a.burnNonce), amount: String(a.amount) }, m) },

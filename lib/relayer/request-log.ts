@@ -121,7 +121,13 @@ export function withApiLog<T extends NextRequest>(
     } catch { /* body unreadable; skip hash */ }
 
     const res = await handler(req, ctx);
-    void (async () => {
+    // CRITICAL (DB-as-source-of-truth): on Vercel serverless a bare detached
+    // promise is killed the instant the HTTP response flushes — that silently
+    // dropped api_events rows (same class of bug fixed for scheduleIndexerMirror,
+    // commit 43c6629). Next.js `after()` keeps the function alive until the log
+    // write finishes. Falls back to a detached promise when `after()` is
+    // unavailable (non-request scope / older runtime).
+    const work = async () => {
       try {
         const callerHash = await hashCaller(req);
         await logApiEvent({
@@ -136,7 +142,14 @@ export function withApiLog<T extends NextRequest>(
           requestBodyHash: bodyHash ?? null,
         });
       } catch { /* swallow */ }
-    })();
+    };
+    try {
+      // Lazy require keeps this module importable outside the Next request runtime.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { after } = require("next/server") as { after?: (fn: () => void | Promise<void>) => void };
+      if (typeof after === "function") { after(work); return res; }
+    } catch { /* fall through to detached */ }
+    void work();
     return res;
   };
 }

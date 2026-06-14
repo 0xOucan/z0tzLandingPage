@@ -332,7 +332,9 @@ import type {
 export async function submitAirdropClaim(chainId: number, r: _AirdropReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [BigInt(r.pubX), BigInt(r.pubY), r.stealth, r.nonce, BigInt(r.sigR), BigInt(r.sigS)] as const;
-  const gas = await estimateOrFallback(pub, { address: d.airdropClaim, abi: airdropAbi, functionName: "claim", args, account }, 300_000n);
+  const simArgs = { address: d.airdropClaim, abi: airdropAbi, functionName: "claim", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 300_000n);
   const txHash = await wallet.writeContract({ address: d.airdropClaim, abi: airdropAbi, functionName: "claim", args, gas } as any) as Hex;
   scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
@@ -341,7 +343,9 @@ export async function submitAirdropClaim(chainId: number, r: _AirdropReq): Promi
 export async function submitSweep(chainId: number, r: _SweepReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.stealthAddress, r.token, r.account, r.viewer, BigInt(r.nonce), BigInt(r.amount), BigInt(r.deadline), r.signature] as const;
-  const gas = await estimateOrFallback(pub, { address: d.sweeper, abi: sweeperAbi, functionName: "privateSweepToLedger", args, account }, 800_000n);
+  const simArgs = { address: d.sweeper, abi: sweeperAbi, functionName: "privateSweepToLedger", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 800_000n);
   const txHash = await wallet.writeContract({ address: d.sweeper, abi: sweeperAbi, functionName: "privateSweepToLedger", args, gas } as any) as Hex;
   scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
@@ -379,7 +383,9 @@ export async function submitSpend(chainId: number, r: _SpendReq): Promise<{ txHa
     plainAmount: BigInt(r.plainAmount ?? "0"),
     nonce: BigInt(r.nonce), deadline: BigInt(r.deadline), pkX: BigInt(r.pkX), pkY: BigInt(r.pkY), sigR: BigInt(r.sigR), sigS: BigInt(r.sigS),
   };
-  const gas = await estimateOrFallback(pub, { address: d.ledger, abi: ledgerAbi, functionName: "spend", args: [op as any], account }, 1_200_000n);
+  const simArgs = { address: d.ledger, abi: ledgerAbi, functionName: "spend", args: [op as any], account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 1_200_000n);
   const txHash = await wallet.writeContract({ address: d.ledger, abi: ledgerAbi, functionName: "spend", args: [op as any], gas } as any) as Hex;
   scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
@@ -485,7 +491,9 @@ export async function submitOrgInitiateRecovery(chainId: number, r: _OrgRecReq):
     BigInt(r.adminPubX), BigInt(r.adminPubY),
     BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
   ] as const;
-  const gas = await estimateOrFallback(pub, { address: d.recoveryHub, abi: hubAbi, functionName: "initiateOrgRecovery", args, account }, 700_000n);
+  const simArgs = { address: d.recoveryHub, abi: hubAbi, functionName: "initiateOrgRecovery", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 700_000n);
   const txHash = await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "initiateOrgRecovery", args, gas } as any) as Hex;
   scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
@@ -494,7 +502,9 @@ export async function submitOrgInitiateRecovery(chainId: number, r: _OrgRecReq):
 export async function submitRecoverInitiate(chainId: number, r: { account: Address; methodIndex: string; newOwnerX: string; newOwnerY: string; proof: Hex }): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.account, BigInt(r.methodIndex), BigInt(r.newOwnerX), BigInt(r.newOwnerY), r.proof] as const;
-  const gas = await estimateOrFallback(pub, { address: d.recoveryHub, abi: hubAbi, functionName: "initiateRecovery", args, account }, 500_000n);
+  const simArgs = { address: d.recoveryHub, abi: hubAbi, functionName: "initiateRecovery", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 500_000n);
   const txHash = await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "initiateRecovery", args, gas } as any) as Hex;
   scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
@@ -503,7 +513,9 @@ export async function submitRecoverInitiate(chainId: number, r: { account: Addre
 export async function submitRecoverExecute(chainId: number, r: { recoveryId: string }): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [BigInt(r.recoveryId)] as const;
-  const gas = await estimateOrFallback(pub, { address: d.recoveryHub, abi: hubAbi, functionName: "executeRecovery", args, account }, 400_000n);
+  const simArgs = { address: d.recoveryHub, abi: hubAbi, functionName: "executeRecovery", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 400_000n);
   const txHash = await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "executeRecovery", args, gas } as any) as Hex;
   scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
@@ -524,7 +536,9 @@ import type {
 export async function submitNameClaimAsAuthority(chainId: number, r: _AuthClaimReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.name, r.nameHash, BigInt(r.nameLength), r.resolvedAccount] as const;
-  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimAsAuthority", args, account }, 400_000n);
+  const simArgs = { address: d.nameRegistry, abi: namesAbi, functionName: "claimAsAuthority", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 400_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimAsAuthority", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry, nameHint: r.name });
   scheduleIndexerMirror(chainId, txHash, d);
@@ -534,7 +548,9 @@ export async function submitNameClaimAsAuthority(chainId: number, r: _AuthClaimR
 export async function submitSubdomainClaimAsAuthority(chainId: number, r: _AuthSubClaimReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.leafSegment, r.parentNameHash, r.leafNameHash, r.resolvedAccount] as const;
-  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainAsAuthority", args, account }, 400_000n);
+  const simArgs = { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainAsAuthority", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 400_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainAsAuthority", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry, nameHint: r.leafSegment, parentHint: r.parentNameHash as Hex });
   scheduleIndexerMirror(chainId, txHash, d);
@@ -544,7 +560,9 @@ export async function submitSubdomainClaimAsAuthority(chainId: number, r: _AuthS
 export async function submitRepointAsAuthority(chainId: number, r: _AuthRepointReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.nameHash, r.newAccount] as const;
-  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "repointAsAuthority", args, account }, 300_000n);
+  const simArgs = { address: d.nameRegistry, abi: namesAbi, functionName: "repointAsAuthority", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 300_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "repointAsAuthority", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry });
   scheduleIndexerMirror(chainId, txHash, d);
@@ -554,7 +572,9 @@ export async function submitRepointAsAuthority(chainId: number, r: _AuthRepointR
 export async function submitRevokeAsAuthority(chainId: number, r: _AuthRevokeReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.nameHash] as const;
-  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "revokeAsAuthority", args, account }, 300_000n);
+  const simArgs = { address: d.nameRegistry, abi: namesAbi, functionName: "revokeAsAuthority", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 300_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "revokeAsAuthority", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry });
   scheduleIndexerMirror(chainId, txHash, d);
