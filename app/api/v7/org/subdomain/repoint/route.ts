@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { geofenceResponse } from "@/lib/relayer/geofence";
-import { isEnabled, submitOrgRepointSubdomain, type OrgRepointSubdomainReq } from "@/lib/relayer/v7";
+import { isEnabled, submitOrgRepointSubdomain, ONCHAIN_SIM_FAILED, type OrgRepointSubdomainReq } from "@/lib/relayer/v7";
 import { requireOrgAuth } from "@/lib/relayer/org-auth";
 import {
   OrgRepointSubdomainReqSchema,
@@ -101,6 +101,17 @@ export const POST = withApiLog("/api/v7/org/subdomain/repoint", async (req: Next
     await finalize(200);
     return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
   } catch (e: any) {
+    // Bug 4 fix: pre-broadcast simulation revert → 400, not 500/200.
+    const msg = String(e?.message ?? e);
+    if (msg.startsWith(ONCHAIN_SIM_FAILED)) {
+      const reason = msg.slice(ONCHAIN_SIM_FAILED.length + 2);
+      ctx.errorCode = ONCHAIN_SIM_FAILED;
+      await finalize(400);
+      return NextResponse.json(
+        { error: reason, code: ONCHAIN_SIM_FAILED },
+        { status: 400, headers: v7CorsHeaders },
+      );
+    }
     ctx.errorCode = "submit_failed";
     await finalize(500);
     return errorResponse(500, "submit_failed", v7CorsHeaders, e);

@@ -23,6 +23,23 @@ import { withApiLog } from "@/lib/relayer/request-log";
 // the full recipient array via batchHash; the contract verifies the P-256
 // sig over (chainid, ledger, tag, account, token, batchHash, totalPlainAmount,
 // senderExecutor, nonce, deadline) and runs each row under try/catch.
+//
+// Bug 6 resolution (2026-06-14 smoke):
+//   The request body uses the singular field name `op` — NOT `ops[]` —
+//   because the on-chain contract signature is `multiSpend(MultispendOp op)`
+//   where `op.recipients[]` IS the batch. The "batch of up to 50" is the
+//   recipients array INSIDE the single op, not a batch of ops at the
+//   transport layer. The H-1 50-row cap is enforced by zod on
+//   `op.recipients.length` in MultispendReqSchema.
+//
+//   Decision: KEEP `op` (singular). One signed envelope per HTTP call
+//   matches one contract tx, which matches the P-256 signature granularity
+//   (the signature covers a single batchHash over the recipients array).
+//   Wrapping multiple ops at the transport layer would require either
+//   N signatures (defeats the "batched" win) or a wrapper signature
+//   not currently in the contract. If we ever want true multi-op batching
+//   we'll need a new contract entry point + signature shape, at which
+//   point we'd add `/api/v7/multispend/batch` rather than rename this field.
 
 v7Registry.registerPath({
   method: "post",

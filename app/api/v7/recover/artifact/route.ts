@@ -87,6 +87,7 @@ v7Registry.registerPath({
   responses: {
     200: { description: "Found.", content: { "application/json": { schema: ArtifactGetResponseSchema } } },
     400: { description: "Malformed pubkeyHash.", content: { "application/json": { schema: ErrorResponseSchema } } },
+    401: { description: "Missing X-Z0tz-Recovery-Auth header.", content: { "application/json": { schema: ErrorResponseSchema } } },
     404: { description: "Not found.", content: { "application/json": { schema: ErrorResponseSchema } } },
   },
 });
@@ -296,6 +297,17 @@ export const POST = withApiLog("/api/v7/recover/artifact", async (req: NextReque
 
 export const GET = withApiLog("/api/v7/recover/artifact", async (req: NextRequest, ctx) => {
   try {
+    // Bug 3 fix (2026-06-14 smoke): auth header check MUST run before the
+    // query-string zod validation so unauthenticated GETs get a clean 401
+    // — no information leak about expected query params. The header parse
+    // only checks shape, not signature validity; we still verify the sig
+    // below once we have the pubkeyHash to bind against.
+    const authHeader = parseAuthHeader(req.headers.get("x-z0tz-recovery-auth"));
+    if (!authHeader) {
+      ctx.errorCode = "unauthorized";
+      return errorResponse(401, "unauthorized", v7CorsHeaders);
+    }
+
     const url = new URL(req.url);
     const pubkeyHash = url.searchParams.get("pubkeyHash") ?? "";
     if (!Bytes32Re.test(pubkeyHash)) {

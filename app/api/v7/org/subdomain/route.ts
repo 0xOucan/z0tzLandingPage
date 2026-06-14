@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { geofenceResponse } from "@/lib/relayer/geofence";
-import { isEnabled, submitOrgClaimSubdomain, type OrgClaimSubdomainReq } from "@/lib/relayer/v7";
+import { isEnabled, submitOrgClaimSubdomain, ONCHAIN_SIM_FAILED, type OrgClaimSubdomainReq } from "@/lib/relayer/v7";
 import { requireOrgAuth } from "@/lib/relayer/org-auth";
 import {
   OrgClaimSubdomainReqSchema,
@@ -119,6 +119,20 @@ export const POST = withApiLog("/api/v7/org/subdomain", async (req: NextRequest,
     await finalize(200);
     return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
   } catch (e: any) {
+    // Bug 4 fix: pre-broadcast simulation failures are USER errors (bogus
+    // sig, wrong nonce, deadline elapsed). Return 400 with the revert
+    // reason so the client can self-correct, and finalize the audit row
+    // with status 400 so billing/quota doesn't count grief traffic as ok.
+    const msg = String(e?.message ?? e);
+    if (msg.startsWith(ONCHAIN_SIM_FAILED)) {
+      const reason = msg.slice(ONCHAIN_SIM_FAILED.length + 2); // strip "onchain_simulation_failed: "
+      ctx.errorCode = ONCHAIN_SIM_FAILED;
+      await finalize(400);
+      return NextResponse.json(
+        { error: reason, code: ONCHAIN_SIM_FAILED },
+        { status: 400, headers: v7CorsHeaders },
+      );
+    }
     ctx.errorCode = "submit_failed";
     await finalize(500);
     return errorResponse(500, "submit_failed", v7CorsHeaders, e);

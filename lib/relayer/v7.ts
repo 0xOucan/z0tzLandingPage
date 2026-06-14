@@ -15,6 +15,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { makeTransport } from "./rpc";
 import { backfillFromReceipt } from "./name-cache";
+import { mirrorTxLogsToV7 } from "../indexer/indexer-v7";
 // F-6 was the wakeup call: maintaining the same wire shapes in two places
 // (landing + cli-v7) guarantees drift. The SDK is now the single source of
 // truth for every request/response interface. Submitter logic stays local
@@ -117,6 +118,35 @@ export async function readAccountOwner(chainId: number, account: Address): Promi
   return { ownerX, ownerY };
 }
 
+/**
+ * Bug 4 fix (2026-06-14 smoke): pre-broadcast simulation.
+ *
+ * Org/name submitters were paying gas on tx that revert because the
+ * relayer broadcast without checking. Now every submitter pre-simulates
+ * via eth_call (pub.simulateContract) using the same args + account.
+ * A revert short-circuits with a typed error the route handler maps to
+ * a 400 (NOT 500, NOT 200) and the audit log entry is marked failed so
+ * billing/quota doesn't overcount griefer traffic.
+ *
+ * Identified by the sentinel-prefix "onchain_simulation_failed: <reason>".
+ * Routes match on the prefix when deciding the HTTP status code.
+ */
+export const ONCHAIN_SIM_FAILED = "onchain_simulation_failed";
+
+async function simulateOrThrow(pub: any, args: any): Promise<void> {
+  try {
+    await pub.simulateContract(args);
+  } catch (e: any) {
+    // viem packs the user-friendly revert reason on shortMessage; fall
+    // back to message or the literal "revert" so the caller always has
+    // SOMETHING actionable. Strip newlines so the audit-log row stays
+    // single-line.
+    const raw = (e?.shortMessage ?? e?.details ?? e?.message ?? "revert") as string;
+    const reason = String(raw).split("\n")[0].slice(0, 200);
+    throw new Error(`${ONCHAIN_SIM_FAILED}: ${reason}`);
+  }
+}
+
 async function estimateOrFallback(pub: any, args: any, fallback: bigint): Promise<bigint> {
   // 2x safety: eth_estimateGas under-funds FHE-heavy operations because the
   // CoFHE TaskManager's nested createTask delegatecalls allocate gas in 63/64
@@ -125,6 +155,24 @@ async function estimateOrFallback(pub: any, args: any, fallback: bigint): Promis
   // function that doesn't estimate cleanly still has a sane ceiling.
   try { const e = await pub.estimateContractGas(args); const safe = e * 2n; return safe > fallback ? safe : fallback; }
   catch { return fallback; }
+}
+
+/**
+ * Realtime mirror of a just-submitted tx's logs into the V7 typed event
+ * tables (credit_events_v7, ledger_events_v7, sweeper_events_v7,
+ * airdrop_claims_v7, name_records_v7, recovery_events_v7, fee_events_v7,
+ * tezcatli_events_v7, audit_alerts_v7). Mirrors the
+ * `scheduleNameCacheBackfill` pattern: detached promise, swallow errors,
+ * never block the relay response. The cron indexer (scripts/indexer-v7.ts)
+ * later re-scans the same range and the INSERT OR IGNORE inserts are a
+ * no-op — so this only buys latency, never causes drift.
+ */
+function scheduleIndexerMirror(chainId: number, txHash: Hex, deployment: V7Deployment): void {
+  void (async () => {
+    try {
+      await mirrorTxLogsToV7({ chainId, txHash, deployment });
+    } catch { /* best-effort */ }
+  })();
 }
 
 /**
@@ -266,14 +314,18 @@ export async function submitAirdropClaim(chainId: number, r: _AirdropReq): Promi
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [BigInt(r.pubX), BigInt(r.pubY), r.stealth, r.nonce, BigInt(r.sigR), BigInt(r.sigS)] as const;
   const gas = await estimateOrFallback(pub, { address: d.airdropClaim, abi: airdropAbi, functionName: "claim", args, account }, 300_000n);
-  return { txHash: await wallet.writeContract({ address: d.airdropClaim, abi: airdropAbi, functionName: "claim", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.airdropClaim, abi: airdropAbi, functionName: "claim", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
 }
 
 export async function submitSweep(chainId: number, r: _SweepReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.stealthAddress, r.token, r.account, r.viewer, BigInt(r.nonce), BigInt(r.amount), BigInt(r.deadline), r.signature] as const;
   const gas = await estimateOrFallback(pub, { address: d.sweeper, abi: sweeperAbi, functionName: "privateSweepToLedger", args, account }, 800_000n);
-  return { txHash: await wallet.writeContract({ address: d.sweeper, abi: sweeperAbi, functionName: "privateSweepToLedger", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.sweeper, abi: sweeperAbi, functionName: "privateSweepToLedger", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
 }
 
 export async function submitSpend(chainId: number, r: _SpendReq): Promise<{ txHash: Hex }> {
@@ -288,16 +340,21 @@ export async function submitSpend(chainId: number, r: _SpendReq): Promise<{ txHa
     nonce: BigInt(r.nonce), deadline: BigInt(r.deadline), pkX: BigInt(r.pkX), pkY: BigInt(r.pkY), sigR: BigInt(r.sigR), sigS: BigInt(r.sigS),
   };
   const gas = await estimateOrFallback(pub, { address: d.ledger, abi: ledgerAbi, functionName: "spend", args: [op as any], account }, 1_200_000n);
-  return { txHash: await wallet.writeContract({ address: d.ledger, abi: ledgerAbi, functionName: "spend", args: [op as any], gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.ledger, abi: ledgerAbi, functionName: "spend", args: [op as any], gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
 }
 
 export async function submitNameClaim(chainId: number, r: _NameReq): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   // V7-FINAL #14: contract takes the cleartext `name` as the first param.
   const args = [r.name, r.nameHash, BigInt(r.nameLength), BigInt(r.pubX), BigInt(r.pubY), r.resolvedAccount, BigInt(r.sigR), BigInt(r.sigS)] as const;
-  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, account }, 400_000n);
+  const simArgs = { address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 400_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claim", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry, nameHint: r.name });
+  scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }
 
@@ -323,9 +380,12 @@ export async function submitOrgClaimSubdomain(chainId: number, r: _OrgClaimSubRe
   };
   // V7-FINAL #14: contract takes cleartext `leafSegment` first.
   const args = [r.leafSegment, tuple] as const;
-  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, account }, 600_000n);
+  const simArgs = { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 600_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainFor", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry, nameHint: r.leafSegment, parentHint: r.parentNameHash as Hex });
+  scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }
 
@@ -337,9 +397,12 @@ export async function submitOrgRepointSubdomain(chainId: number, r: _OrgRepointR
     BigInt(r.adminPubX), BigInt(r.adminPubY),
     BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
   ] as const;
-  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "repointSubdomain", args, account }, 500_000n);
+  const simArgs = { address: d.nameRegistry, abi: namesAbi, functionName: "repointSubdomain", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 500_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "repointSubdomain", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry });
+  scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }
 
@@ -350,9 +413,12 @@ export async function submitOrgRevokeSubdomain(chainId: number, r: _OrgRevokeReq
     BigInt(r.adminPubX), BigInt(r.adminPubY),
     BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
   ] as const;
-  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "revokeSubdomain", args, account }, 400_000n);
+  const simArgs = { address: d.nameRegistry, abi: namesAbi, functionName: "revokeSubdomain", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 400_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "revokeSubdomain", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry });
+  scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }
 
@@ -363,8 +429,12 @@ export async function submitOrgSetPolicy(chainId: number, r: _OrgSetPolicyReq): 
     BigInt(r.adminPubX), BigInt(r.adminPubY),
     BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
   ] as const;
-  const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "setPolicy", args, account }, 400_000n);
-  return { txHash: await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "setPolicy", args, gas } as any) };
+  const simArgs = { address: d.nameRegistry, abi: namesAbi, functionName: "setPolicy", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 400_000n);
+  const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "setPolicy", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
 }
 
 export async function submitOrgInitiateRecovery(chainId: number, r: _OrgRecReq): Promise<{ txHash: Hex }> {
@@ -376,21 +446,27 @@ export async function submitOrgInitiateRecovery(chainId: number, r: _OrgRecReq):
     BigInt(r.deadline), BigInt(r.sigR), BigInt(r.sigS),
   ] as const;
   const gas = await estimateOrFallback(pub, { address: d.recoveryHub, abi: hubAbi, functionName: "initiateOrgRecovery", args, account }, 700_000n);
-  return { txHash: await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "initiateOrgRecovery", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "initiateOrgRecovery", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
 }
 
 export async function submitRecoverInitiate(chainId: number, r: { account: Address; methodIndex: string; newOwnerX: string; newOwnerY: string; proof: Hex }): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [r.account, BigInt(r.methodIndex), BigInt(r.newOwnerX), BigInt(r.newOwnerY), r.proof] as const;
   const gas = await estimateOrFallback(pub, { address: d.recoveryHub, abi: hubAbi, functionName: "initiateRecovery", args, account }, 500_000n);
-  return { txHash: await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "initiateRecovery", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "initiateRecovery", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
 }
 
 export async function submitRecoverExecute(chainId: number, r: { recoveryId: string }): Promise<{ txHash: Hex }> {
   const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
   const args = [BigInt(r.recoveryId)] as const;
   const gas = await estimateOrFallback(pub, { address: d.recoveryHub, abi: hubAbi, functionName: "executeRecovery", args, account }, 400_000n);
-  return { txHash: await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "executeRecovery", args, gas } as any) };
+  const txHash = await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "executeRecovery", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
 }
 
 // ── V7-FINAL #7: relayer-as-namespace-authority submitters ─────────────
@@ -411,6 +487,7 @@ export async function submitNameClaimAsAuthority(chainId: number, r: _AuthClaimR
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimAsAuthority", args, account }, 400_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimAsAuthority", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry, nameHint: r.name });
+  scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }
 
@@ -420,6 +497,7 @@ export async function submitSubdomainClaimAsAuthority(chainId: number, r: _AuthS
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainAsAuthority", args, account }, 400_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "claimSubdomainAsAuthority", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry, nameHint: r.leafSegment, parentHint: r.parentNameHash as Hex });
+  scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }
 
@@ -429,6 +507,7 @@ export async function submitRepointAsAuthority(chainId: number, r: _AuthRepointR
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "repointAsAuthority", args, account }, 300_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "repointAsAuthority", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry });
+  scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }
 
@@ -438,5 +517,6 @@ export async function submitRevokeAsAuthority(chainId: number, r: _AuthRevokeReq
   const gas = await estimateOrFallback(pub, { address: d.nameRegistry, abi: namesAbi, functionName: "revokeAsAuthority", args, account }, 300_000n);
   const txHash = await wallet.writeContract({ address: d.nameRegistry, abi: namesAbi, functionName: "revokeAsAuthority", args, gas } as any);
   scheduleNameCacheBackfill({ chainId, pub, txHash, registryAddress: d.nameRegistry });
+  scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }
