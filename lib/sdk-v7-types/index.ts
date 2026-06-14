@@ -109,6 +109,12 @@ export interface SpendReq {
    *  CrossChain* actions; address(0) for same-chain. Bound into the
    *  spend digest so the relayer cannot redirect funds. */
   srcStealth: Address;
+  /** V7-FINAL-2 H-1: recipient decryption viewer for the DESTINATION-chain
+   *  credit of a CrossChainInternal spend. Bound into the spend digest AND
+   *  the source-chain authorizedHook[srcStealth] commitment so the dest-side
+   *  receiveDelivered hookData (action, finalAccount, viewer) is provably the
+   *  passkey-authorized one. address(0) for same-chain + CrossChainCashout. */
+  viewer: Address;
   amount: InEuint64;
   /** uint64 as decimal string. "0" for Internal, matching unshield for Cashout. */
   plainAmount: string;
@@ -340,7 +346,9 @@ export interface BurnMessage {
 // `Intent` were removed from Z0tzInternalBridge. The ledger now unshields
 // CrossChain* spends to a user-supplied srcStealth via the vault, and the
 // stealth itself calls zusdcMessenger.depositForBurn off-chain. The bridge
-// keeps only dest-side `receiveInternal` + cctp-clone receive.
+// keeps only the cctp-clone receive. V7-FINAL-2: `receiveInternal` is now a
+// reverting stub — dest-credit happens automatically inside `receiveDelivered`
+// via the cctp message hookData. The relayer never calls receiveInternal.
 //
 // `ExpireIntentReq` is removed accordingly. The InternalMessage /
 // BurnMessage destination-side decode shapes remain.

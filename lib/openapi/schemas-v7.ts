@@ -151,6 +151,10 @@ export const SpendOpSchema = z
     // to this stealth via the vault; the stealth then drives the cctp-clone
     // burn off-chain.
     srcStealth: AddressSchema.openapi({ description: "User-supplied src stealth for CrossChain*; address(0) for same-chain" }),
+    // V7-FINAL-2 H-1: dest-credit viewer for CrossChainInternal, bound into
+    // the signed digest + authorizedHook commitment. address(0) for same-chain
+    // and CrossChainCashout. Field order matches Z0tzLedgerV7.SpendOp.
+    viewer: AddressSchema.openapi({ description: "Dest-credit viewer for CC-Internal; address(0) for same-chain/CC-Cashout" }),
     amount: InEuint64Schema,
     // F-6 fix: SpendOp on-chain has plainAmount (uint64) between amount and
     // nonce. Internal paths pass "0"; cashout paths pass the matching
@@ -268,6 +272,42 @@ export const RecoverExecuteReqSchema = z
     recoveryId: BigIntStr,
   })
   .openapi("RecoverExecuteRequest");
+
+// ── /api/v7/recover/xchain — V7-FINAL-2 H-1 two-step cross-chain recovery ──
+//
+// `attest`: relayer signs the 10-field RECOVERY_ATTEST_TAG digest and calls
+// attestRecoveryForChain on the dest hub (opens the timelock). `execute`:
+// permissionless, after the timelock. `cancel`: owner-only (the relayer cannot
+// satisfy the msg.sender==account check; surfaced as a 400 on-chain revert —
+// the route exists for completeness / future account-signed relay).
+export const RecoverAttestXChainReqSchema = z
+  .object({
+    chainId: ChainIdSchema.openapi({ description: "Destination chain id" }),
+    action: z.literal("attest"),
+    account: AddressSchema,
+    newOwnerX: BigIntStr,
+    newOwnerY: BigIntStr,
+    srcChainId: ChainIdSchema.openapi({ description: "Source chain where local recovery completed" }),
+    srcRecoveryId: BigIntStr,
+    srcEpoch: BigIntStr,
+  })
+  .openapi("RecoverAttestXChainRequest");
+
+export const RecoverExecuteXChainReqSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    action: z.literal("execute-xchain"),
+    recoveryId: BigIntStr,
+  })
+  .openapi("RecoverExecuteXChainRequest");
+
+export const RecoverCancelXChainReqSchema = z
+  .object({
+    chainId: ChainIdSchema,
+    action: z.literal("cancel-xchain"),
+    recoveryId: BigIntStr,
+  })
+  .openapi("RecoverCancelXChainRequest");
 
 // /api/v7/recover/artifact PUT body (encrypted-blob storage).
 export const EncryptedArtifactSchema = z

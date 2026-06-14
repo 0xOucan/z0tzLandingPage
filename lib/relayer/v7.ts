@@ -10,7 +10,7 @@
  * The relayer NEVER sees plaintext amounts/secrets — it forwards already-
  * signed, already-encrypted ops (the P-256 sig is the user's authorization).
  */
-import { createPublicClient, createWalletClient, http, type Address, type Hex, type Chain } from "viem";
+import { createPublicClient, createWalletClient, http, keccak256, encodeAbiParameters, type Address, type Hex, type Chain } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia, arbitrumSepolia, hardhat } from "viem/chains";
 import { makeTransport } from "./rpc";
@@ -297,7 +297,31 @@ const hubAbi = [
       { name: "adminPubX", type: "uint256" }, { name: "adminPubY", type: "uint256" },
       { name: "deadline", type: "uint64" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" },
     ], outputs: [{ type: "uint256" }] },
+  // V7-FINAL-2 H-1/M-1: 2-step cross-chain recovery. The relayer signs a
+  // 10-field attest digest (RECOVERY_ATTEST_TAG, srcChainId, dstChainId, hub,
+  // account, newOwnerX, newOwnerY, srcRecoveryId, srcEpoch, dstEpoch) over
+  // toEthSignedMessageHash, then calls attestRecoveryForChain. The contract
+  // reads its own recoveryEpoch[account] as dstEpoch, so the relayer MUST read
+  // the same value on the dest chain to build the matching digest. After the
+  // timelock anyone calls executeCrossChainRecovery; the account-owner may
+  // cancelCrossChainRecovery during the window.
+  { name: "recoveryEpoch", type: "function", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint64" }] },
+  { name: "attestRecoveryForChain", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "newOwnerX", type: "uint256" }, { name: "newOwnerY", type: "uint256" },
+      { name: "srcChainId", type: "uint32" }, { name: "dstChainId", type: "uint256" },
+      { name: "srcRecoveryId", type: "uint256" }, { name: "srcEpoch", type: "uint64" },
+      { name: "attestation", type: "bytes" },
+    ], outputs: [{ type: "uint256" }] },
+  { name: "executeCrossChainRecovery", type: "function", stateMutability: "nonpayable", inputs: [{ name: "recoveryId", type: "uint256" }], outputs: [] },
+  { name: "cancelCrossChainRecovery", type: "function", stateMutability: "nonpayable", inputs: [{ name: "recoveryId", type: "uint256" }], outputs: [] },
 ] as const;
+// V7-FINAL-2: solidity `bytes32("z0tz-v7-recovery-attest")` — left-aligned,
+// right-zero-padded to 32 bytes. Matches Z0tzRecoveryHub.RECOVERY_ATTEST_TAG.
+const RECOVERY_ATTEST_TAG = ("0x" + Buffer.from(
+  (() => { const e = new TextEncoder().encode("z0tz-v7-recovery-attest"); const p = new Uint8Array(32); p.set(e, 0); return p; })(),
+).toString("hex")) as Hex;
 const inEuint64 = { name: "amount", type: "tuple", components: [{ name: "ctHash", type: "uint256" }, { name: "securityZone", type: "uint8" }, { name: "utype", type: "uint8" }, { name: "signature", type: "bytes" }] } as const;
 const ledgerAbi = [{ name: "spend", type: "function", stateMutability: "nonpayable",
   inputs: [{ name: "op", type: "tuple", components: [
@@ -307,6 +331,13 @@ const ledgerAbi = [{ name: "spend", type: "function", stateMutability: "nonpayab
     // (srcStealth = address(0)) stay byte-stable for prior signers; CrossChain*
     // actions REQUIRE non-zero. Field order matches Z0tzLedgerV7.SpendOp.
     { name: "srcStealth", type: "address" },
+    // V7-FINAL-2 H-1: recipient decryption viewer for the DESTINATION-chain
+    // credit of a CrossChainInternal spend. Bound into the signed digest AND
+    // the source-chain authorizedHook[srcStealth] commitment so the dest-side
+    // receiveDelivered hookData (action, finalAccount, viewer) is provably
+    // passkey-authorized. Zero for non-xchain actions + CrossChainCashout.
+    // Field order matches Z0tzLedgerV7.SpendOp (srcStealth, viewer, amount).
+    { name: "viewer", type: "address" },
     inEuint64,
     // F-6 fix: contract's SpendOp has a uint64 plainAmount between amount
     // and nonce (audit C-2: binds plaintext to the signed digest so the
@@ -381,6 +412,8 @@ export async function submitSpend(chainId: number, r: _SpendReq): Promise<{ txHa
     // V7-FINAL #1: srcStealth — address(0) for same-chain; non-zero for
     // CrossChain* (signature-bound, contract reverts ZeroAddress otherwise).
     srcStealth: (r.srcStealth ?? "0x0000000000000000000000000000000000000000") as Address,
+    // V7-FINAL-2 H-1: dest-credit viewer, zero for non-xchain / CC-Cashout.
+    viewer: (r.viewer ?? "0x0000000000000000000000000000000000000000") as Address,
     amount: { ctHash: BigInt(r.amount.ctHash), securityZone: r.amount.securityZone, utype: r.amount.utype, signature: r.amount.signature },
     plainAmount: BigInt(r.plainAmount ?? "0"),
     nonce: BigInt(r.nonce), deadline: BigInt(r.deadline), pkX: BigInt(r.pkX), pkY: BigInt(r.pkY), sigR: BigInt(r.sigR), sigS: BigInt(r.sigS),
@@ -519,6 +552,81 @@ export async function submitRecoverExecute(chainId: number, r: { recoveryId: str
   await simulateOrThrow(pub, simArgs);
   const gas = await estimateOrFallback(pub, simArgs, 400_000n);
   const txHash = await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "executeRecovery", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
+}
+
+// ── V7-FINAL-2 H-1: cross-chain recovery (2-step attest) submitters ─────
+//
+// The relayer is the on-chain `crossChainRelayer`. To attest a rotation that
+// already happened on `srcChainId`, it signs the 10-field digest the dest hub
+// rebuilds in `attestRecoveryForChain` and submits the attestation. The hub
+// reads its own `recoveryEpoch[account]` as the `dstEpoch` field, so we read
+// the SAME value on the dest chain and bind it into the signed preimage —
+// otherwise `digest.recover(attestation) != crossChainRelayer` reverts.
+export interface RecoverAttestXChainReq {
+  /** Destination chain — where the new owner key takes effect. */
+  chainId: number;
+  account: Address;
+  newOwnerX: string;
+  newOwnerY: string;
+  /** Source chain where the local recovery completed (uint32). */
+  srcChainId: number;
+  /** Source recoveryId (off-chain trace, bound into the digest). */
+  srcRecoveryId: string;
+  /** Source post-rotation epoch (bound into the digest). */
+  srcEpoch: string;
+}
+
+export async function submitRecoverAttestXChain(chainId: number, r: RecoverAttestXChainReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  // dstEpoch == the hub's current recoveryEpoch[account] on THIS (dest) chain.
+  const dstEpoch = await pub.readContract({ address: d.recoveryHub, abi: hubAbi, functionName: "recoveryEpoch", args: [r.account] }) as bigint;
+  // Rebuild the 10-field inner digest exactly as Z0tzRecoveryHub does:
+  //   keccak256(abi.encode(TAG, srcChainId, dstChainId, hub, account,
+  //                        newOwnerX, newOwnerY, srcRecoveryId, srcEpoch, dstEpoch))
+  const inner = keccak256(encodeAbiParameters(
+    [
+      { type: "bytes32" }, { type: "uint32" }, { type: "uint256" }, { type: "address" },
+      { type: "address" }, { type: "uint256" }, { type: "uint256" },
+      { type: "uint256" }, { type: "uint64" }, { type: "uint64" },
+    ],
+    [
+      RECOVERY_ATTEST_TAG, r.srcChainId, BigInt(chainId), d.recoveryHub,
+      r.account, BigInt(r.newOwnerX), BigInt(r.newOwnerY),
+      BigInt(r.srcRecoveryId), BigInt(r.srcEpoch), dstEpoch,
+    ],
+  ));
+  // toEthSignedMessageHash(inner) — account.signMessage over raw 32 bytes does
+  // the \x19Ethereum Signed Message prefixing the contract expects.
+  const attestation = await account.signMessage({ message: { raw: inner } });
+  const args = [r.account, BigInt(r.newOwnerX), BigInt(r.newOwnerY), r.srcChainId, BigInt(chainId), BigInt(r.srcRecoveryId), BigInt(r.srcEpoch), attestation] as const;
+  const simArgs = { address: d.recoveryHub, abi: hubAbi, functionName: "attestRecoveryForChain", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 500_000n);
+  const txHash = await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "attestRecoveryForChain", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
+}
+
+export async function submitRecoverExecuteXChain(chainId: number, r: { recoveryId: string }): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [BigInt(r.recoveryId)] as const;
+  const simArgs = { address: d.recoveryHub, abi: hubAbi, functionName: "executeCrossChainRecovery", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 400_000n);
+  const txHash = await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "executeCrossChainRecovery", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
+}
+
+export async function submitRecoverCancelXChain(chainId: number, r: { recoveryId: string }): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  const args = [BigInt(r.recoveryId)] as const;
+  const simArgs = { address: d.recoveryHub, abi: hubAbi, functionName: "cancelCrossChainRecovery", args, account } as const;
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 300_000n);
+  const txHash = await wallet.writeContract({ address: d.recoveryHub, abi: hubAbi, functionName: "cancelCrossChainRecovery", args, gas } as any) as Hex;
   scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }

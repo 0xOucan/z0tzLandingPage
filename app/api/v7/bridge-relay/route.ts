@@ -357,6 +357,13 @@ async function handler(req: NextRequest, ctx: LoggedContext): Promise<NextRespon
       ],
     ),
   );
+  // V7-FINAL-2 (bridge M-1): the dest transmitter now supports an N-of-M
+  // attester set. When `attestationThreshold > 1` it expects K concatenated
+  // 65-byte signatures from DISTINCT signers in ASCENDING signer-address order.
+  // Alpha runs threshold == 1 (single relayer signer), so the single-sig path
+  // below is correct and unchanged. TODO(mainnet): when threshold > 1, fan the
+  // `inner` digest out to the K attester keys, sort recovered addresses
+  // ascending, and concat the 65-byte sigs here.
   const attestation = await account.signMessage({ message: { raw: inner } });
 
   // 4. Submit receiveMessage on the dest transmitter.
