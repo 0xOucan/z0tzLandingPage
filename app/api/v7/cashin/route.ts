@@ -74,6 +74,11 @@ export const POST = withApiLog("/api/v7/cashin", async (req: NextRequest, ctx) =
     ctx.txHash = txHash;
     return NextResponse.json({ txHash }, { headers: v7CorsHeaders });
   } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    if (msg.startsWith("onchain_simulation_failed")) {
+      ctx.errorCode = "onchain_simulation_failed";
+      return NextResponse.json({ error: msg, code: "onchain_simulation_failed" }, { status: 400, headers: v7CorsHeaders });
+    }
     ctx.errorCode = "submit_failed";
     return errorResponse(500, "submit_failed", v7CorsHeaders, e);
   }

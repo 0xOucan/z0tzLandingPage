@@ -51,6 +51,15 @@ v7Registry.registerComponent("securitySchemes", "passkey", {
     "(/api/v7/{cashin,spend,names,recover,stealth/*}).",
 });
 
+v7Registry.registerComponent("securitySchemes", "resolveAuth", {
+  type: "apiKey",
+  in: "header",
+  name: "X-Z0tz-Resolve-Auth",
+  description:
+    "Any z0tz passkey P-256 signature over `sha256('z0tz-resolve|<nameHash>|<ts>')`. " +
+    "Required on GET /api/v7/resolve/{nameHash}.",
+});
+
 /// Build the OpenAPI 3.1 document from the accumulated registrations.
 /// Called by the /api/openapi route on each request — the document is
 /// purely a function of the registry, so it's cheap to regenerate and

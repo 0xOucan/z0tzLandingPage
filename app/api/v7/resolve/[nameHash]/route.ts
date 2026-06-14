@@ -43,6 +43,7 @@ v7Registry.registerPath({
     "over `sha256('z0tz-resolve|<nameHash>|<ts>')` is accepted. The on-chain " +
     "registry returns the address(0x1) sentinel to all non-LEDGER_ROLE " +
     "callers — this endpoint is the off-chain resolution path.",
+  security: [{ resolveAuth: [] }],
   request: {
     params: ResolveResSchema.pick({ nameHash: true }),
   },

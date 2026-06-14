@@ -95,6 +95,11 @@ export const POST = withApiLog("/api/v7/recover", async (req: NextRequest, ctx) 
     ctx.errorCode = "unknown_action";
     return NextResponse.json({ error: "unknown action" }, { status: 400, headers: v7CorsHeaders });
   } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    if (msg.startsWith("onchain_simulation_failed")) {
+      ctx.errorCode = "onchain_simulation_failed";
+      return NextResponse.json({ error: msg, code: "onchain_simulation_failed" }, { status: 400, headers: v7CorsHeaders });
+    }
     ctx.errorCode = "submit_failed";
     return errorResponse(500, "submit_failed", v7CorsHeaders, e);
   }

@@ -20,6 +20,16 @@ import "@/app/api/v7/org/recover/route";
 import "@/app/api/v7/scan/route";
 import "@/app/api/v7/paymaster/cosign/route";
 import "@/app/api/v7/org/usage/route";
+import "@/app/api/v7/tezcatli/sweep/route";
+import "@/app/api/v7/tezcatli/apy/route";
+import "@/app/api/v7/tezcatli/position/route";
+import "@/app/api/v7/tezcatli/totals/route";
+import "@/app/api/v7/tezcatli/cashin-cosign/route";
+import "@/app/api/v7/tezcatli/cashout-cosign/route";
+import "@/app/api/v7/bridge-relay/route";
+import "@/app/api/v7/multispend/route";
+import "@/app/api/v7/admin/issue-org-key/route";
+import "@/app/api/v7/resolve/[nameHash]/route";
 
 /**
  * Generated OpenAPI 3.1 specification of the /api/v7/* surface.
