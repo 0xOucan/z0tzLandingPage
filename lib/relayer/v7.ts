@@ -223,6 +223,11 @@ const airdropAbi = [{ name: "claim", type: "function", stateMutability: "nonpaya
   inputs: [{ name: "pubX", type: "uint256" }, { name: "pubY", type: "uint256" }, { name: "stealth", type: "address" }, { name: "nonce", type: "bytes32" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" }], outputs: [] }] as const;
 const sweeperAbi = [{ name: "privateSweepToLedger", type: "function", stateMutability: "nonpayable",
   inputs: [{ name: "stealthAddress", type: "address" }, { name: "token", type: "address" }, { name: "account", type: "address" }, { name: "viewer", type: "address" }, { name: "nonce", type: "uint256" }, { name: "amount", type: "uint64" }, { name: "deadline", type: "uint256" }, { name: "signature", type: "bytes" }], outputs: [] }] as const;
+// V7-FINAL #10 + DELTA M-2: Tezcatli sweep. Arg order MUST match
+// Z0tzSweeperV7.sweepToTezcatli exactly — lockOption (uint8) sits between
+// amount and deadline.
+const tezcatliSweeperAbi = [{ name: "sweepToTezcatli", type: "function", stateMutability: "nonpayable",
+  inputs: [{ name: "stealthAddress", type: "address" }, { name: "token", type: "address" }, { name: "account", type: "address" }, { name: "viewer", type: "address" }, { name: "nonce", type: "uint256" }, { name: "amount", type: "uint64" }, { name: "lockOption", type: "uint8" }, { name: "deadline", type: "uint256" }, { name: "signature", type: "bytes" }], outputs: [] }] as const;
 const namesAbi = [
   // V7-FINAL #14: `claim` now takes cleartext `name` as the first param so
   // the contract can validate the ASCII allowlist + length on-chain and
@@ -337,6 +342,27 @@ export async function submitSweep(chainId: number, r: _SweepReq): Promise<{ txHa
   const args = [r.stealthAddress, r.token, r.account, r.viewer, BigInt(r.nonce), BigInt(r.amount), BigInt(r.deadline), r.signature] as const;
   const gas = await estimateOrFallback(pub, { address: d.sweeper, abi: sweeperAbi, functionName: "privateSweepToLedger", args, account }, 800_000n);
   const txHash = await wallet.writeContract({ address: d.sweeper, abi: sweeperAbi, functionName: "privateSweepToLedger", args, gas } as any) as Hex;
+  scheduleIndexerMirror(chainId, txHash, d);
+  return { txHash };
+}
+
+// V7-FINAL #10 + DELTA M-2: one-tx cash-in straight into the Tezcatli yield
+// vault via Z0tzSweeperV7.sweepToTezcatli (independent `tezcatliNonce` track).
+export interface TezcatliSweepReq {
+  stealthAddress: Address; token: Address; account: Address; viewer: Address;
+  nonce: string; amount: string; lockOption: number; deadline: string; signature: Hex;
+}
+export async function submitTezcatliSweep(chainId: number, r: TezcatliSweepReq): Promise<{ txHash: Hex }> {
+  const d = v7Deployment(chainId); const { account, pub, wallet } = clients(chainId);
+  // Arg order mirrors the contract: stealth, token, account, viewer, nonce,
+  // amount(uint64), lockOption(uint8), deadline, signature.
+  const args = [r.stealthAddress, r.token, r.account, r.viewer, BigInt(r.nonce), BigInt(r.amount), r.lockOption, BigInt(r.deadline), r.signature] as const;
+  const simArgs = { address: d.sweeper, abi: tezcatliSweeperAbi, functionName: "sweepToTezcatli", args, account } as const;
+  // Bug-#4 fix: simulate before broadcast so contract-level reverts surface
+  // as a 5xx with the revert reason instead of a silently-mined failed tx.
+  await simulateOrThrow(pub, simArgs);
+  const gas = await estimateOrFallback(pub, simArgs, 900_000n);
+  const txHash = await wallet.writeContract({ address: d.sweeper, abi: tezcatliSweeperAbi, functionName: "sweepToTezcatli", args, gas } as any) as Hex;
   scheduleIndexerMirror(chainId, txHash, d);
   return { txHash };
 }

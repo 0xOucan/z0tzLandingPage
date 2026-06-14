@@ -114,6 +114,28 @@ export const CashinReqSchema = z
   .object({ chainId: ChainIdSchema, sweep: SweepReqSchema })
   .openapi("CashinRequest");
 
+// ── /api/v7/tezcatli/sweep ───────────────────────────────────────────────
+// V7-FINAL #10: sweepToTezcatli — like cashin but routes the swept funds into
+// the Tezcatli yield vault instead of the ledger. lockOption picks the deposit
+// lock tier (0=none, 1/2=timed). Digest binds bytes32("tezcatliNonce").
+export const TezcatliSweepParamsSchema = z
+  .object({
+    stealthAddress: AddressSchema,
+    token: AddressSchema,
+    account: AddressSchema,
+    viewer: AddressSchema,
+    nonce: BigIntStr,
+    amount: BigIntStr,
+    lockOption: z.number().int().min(0).max(2).openapi({ description: "0=none 1/2=timed lock tier" }),
+    deadline: BigIntStr.openapi({ description: "Unix seconds; reverts past this" }),
+    signature: HexSchema.openapi({ description: "P-256 sig over the tezcatli sweep digest" }),
+  })
+  .openapi("TezcatliSweepParams");
+
+export const TezcatliSweepReqSchema = z
+  .object({ chainId: ChainIdSchema, sweep: TezcatliSweepParamsSchema })
+  .openapi("TezcatliSweepRequest");
+
 // ── /api/v7/spend ───────────────────────────────────────────────────────
 
 export const SpendOpSchema = z
