@@ -102,6 +102,12 @@ function sources(d: V7Deployment): Source[] {
     { key: "airdrop.Claimed", address: d.airdropClaim, event: EV.claimed, handle: async (a, m, chainId) => {
       await c.execute({ sql: `INSERT OR IGNORE INTO airdrop_claims_v7 (chain_id, pubkey_hash, account, amount, block, tx_hash, ts) VALUES (?,?,?,?,?,?,?)`,
         args: [chainId, a.pubkeyHash, String(a.account).toLowerCase(), String(a.amount), m.block, m.txHash, m.ts] }); } },
+    // Fee accounting (FeeRecorded) — emitted by the ledger when ops settle
+    // protocol fee + gas reimbursement. opKind is a bytes32 tag (e.g.
+    // keccak256("CASHOUT")). The break-even dashboard reads from here.
+    { key: "ledger.FeeRecorded", address: d.ledger, event: EV.feeRecorded, handle: async (a, m, chainId) => {
+      await c.execute({ sql: `INSERT OR IGNORE INTO fee_events_v7 (chain_id, account, op_kind, base_amount, protocol_fee, gas_reimbursed, block, tx_hash, log_index, ts) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        args: [chainId, String(a.account).toLowerCase(), String(a.opKind), String(a.baseAmount), String(a.protocolFee), String(a.gasReimbursed), m.block, m.txHash, m.logIndex, m.ts] }); } },
     // ── Tezcatli yield vault — only registered when the chain has it. ──
     // `account` = beneficiary (deposit) / owner (withdraw); strategy events
     // are vault-wide so we store account = vault address as a sentinel.
@@ -243,5 +249,60 @@ export async function indexStealthInbound(chainId: number, d: V7Deployment, opts
       }
       await db.setScanState(chainId, token, key, head);
     }
+  }
+}
+
+// ── Realtime tx-log mirror (single tx fast-path) ─────────────────────────
+//
+// Every successful submit-X in lib/relayer/v7.ts produces a tx hash. Rather
+// than wait for the next cron tick, we fetch that exact tx's receipt + walk
+// its logs through the same source registry that the cron uses. Same
+// INSERT OR IGNORE inserts ⇒ later cron sweep is a no-op for the same row.
+//
+// Wire shape matches scheduleNameCacheBackfill in lib/relayer/v7.ts: caller
+// fires-and-forgets, errors are swallowed, the relayer response is never
+// blocked. scan_state cursor is NOT advanced here — that's the cron's job.
+export async function mirrorTxLogsToV7(opts: {
+  chainId: number;
+  txHash: string;
+  deployment: V7Deployment;
+}): Promise<void> {
+  try {
+    await db.ensureSchema();
+    const rpc = process.env[`RPC_URL_${opts.chainId}`] ?? "";
+    if (!rpc) return;
+    const pub = createPublicClient({ chain: chainFor(opts.chainId), transport: makeTransport(rpc) });
+    const receipt = await pub.getTransactionReceipt({ hash: opts.txHash as `0x${string}` });
+    if (!receipt || receipt.status !== "success") return;
+    const block = await pub.getBlock({ blockNumber: receipt.blockNumber });
+    const ts = Number(block.timestamp);
+
+    // Build a quick (address|topic0) -> source lookup so we don't iterate
+    // the full registry for every log.
+    const registry = sources(opts.deployment);
+    const index = new Map<string, Source>();
+    for (const s of registry) {
+      const k = `${String(s.address).toLowerCase()}|${toEventSelector(s.event).toLowerCase()}`;
+      index.set(k, s);
+    }
+
+    for (const log of receipt.logs) {
+      try {
+        const t0 = (log.topics?.[0] ?? "").toLowerCase();
+        const addr = String(log.address).toLowerCase();
+        const src = index.get(`${addr}|${t0}`);
+        if (!src) continue;
+        const { args } = decodeEventLog({ abi: [src.event], data: log.data as `0x${string}`, topics: log.topics as any });
+        const m: LogMeta = {
+          block: Number(receipt.blockNumber),
+          ts,
+          txHash: receipt.transactionHash,
+          logIndex: Number(log.logIndex ?? 0),
+        };
+        await src.handle(args, m, opts.chainId);
+      } catch { /* skip undecodable / mismatched logs */ }
+    }
+  } catch {
+    /* best-effort — never throw out of the mirror */
   }
 }
