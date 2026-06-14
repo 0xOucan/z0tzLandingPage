@@ -168,11 +168,24 @@ async function estimateOrFallback(pub: any, args: any, fallback: bigint): Promis
  * no-op — so this only buys latency, never causes drift.
  */
 function scheduleIndexerMirror(chainId: number, txHash: Hex, deployment: V7Deployment): void {
-  void (async () => {
+  // CRITICAL (DB-as-source-of-truth): on Vercel serverless a bare detached
+  // promise is killed the instant the HTTP response is sent — that silently
+  // dropped most sweep/credit/airdrop mirrors. Next.js `after()` keeps the
+  // function alive until the background work finishes, so every relayed tx
+  // reliably lands in the typed event tables. Falls back to a detached
+  // promise if `after()` is unavailable (non-request scope / older runtime).
+  const work = async () => {
     try {
       await mirrorTxLogsToV7({ chainId, txHash, deployment });
     } catch { /* best-effort */ }
-  })();
+  };
+  try {
+    // Lazy import keeps this module importable outside the Next request runtime.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { after } = require("next/server") as { after?: (fn: () => void | Promise<void>) => void };
+    if (typeof after === "function") { after(work); return; }
+  } catch { /* fall through to detached */ }
+  void work();
 }
 
 /**

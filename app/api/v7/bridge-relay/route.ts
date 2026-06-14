@@ -89,12 +89,18 @@ const cctpMessageTypes = [
 ] as const;
 
 // ZUSDCTokenMessenger.BurnMessage (informational — returned in the response).
+// XCHAIN-7B: `hookData` (abi.encode(uint8 action, address finalAccount,
+// address viewer)) was appended to the struct. The relayer forwards the whole
+// cctp message verbatim, so the hookData rides along to the dest transmitter
+// automatically (it is part of the attested bytes); this decode is only for the
+// diagnostic response. Field order is load-bearing — must match the contract.
 const burnMessageTypes = [
   { name: "burnToken", type: "address" },
   { name: "mintRecipient", type: "address" },
   { name: "amount", type: "uint256" },
   { name: "messageSender", type: "address" },
   { name: "burnNonce", type: "uint64" },
+  { name: "hookData", type: "bytes" },
 ] as const;
 
 // Solidity `bytes32("…")` literal: left-aligned, right-padded with zeros.
