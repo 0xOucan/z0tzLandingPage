@@ -407,7 +407,11 @@ const ledgerAbi = [{ name: "spend", type: "function", stateMutability: "nonpayab
     { name: "plainAmount", type: "uint64" },
     { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
     { name: "pkX", type: "uint256" }, { name: "pkY", type: "uint256" }, { name: "sigR", type: "uint256" }, { name: "sigS", type: "uint256" },
-  ] }], outputs: [] }] as const;
+  ] }], outputs: [] },
+  // Z0tzLedgerV7 custom errors — included so viem decodes the NAMED revert
+  // (simulateOrThrow previously surfaced a bare "spend reverted").
+  ...["AccountNotDeployed","AlreadyLocked","BadMode","BadNonce","BatchEmpty","BatchTooLarge","BridgeNotSet","DestNotFound","EntryNotFound","ExecutorMismatch","Expired","HookNotAuthorized","InvalidAction","InvalidDestination","InvalidPlainAmount","InvalidSignature","NotBridge","NotLocked","NotOwner","NotSelf","NotSweeper","NotZUSDCMessenger","PlainAmountTooSmall","PubkeyMismatch","TokenNotEnabled","TotalMismatch","ZeroAddress","ZeroAmount","ZUSDCMessengerNotSet"].map((n) => ({ name: n, type: "error", inputs: [] as const })),
+] as const;
 
 // (Request shapes now imported from @z0tz/sdk-v7 — top of file. Submitters
 //  below take those typed shapes directly. F-6 prevention: there's only
